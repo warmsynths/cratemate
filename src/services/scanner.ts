@@ -157,7 +157,7 @@ export class ScannerService {
 
         try {
           const profile = await audioEngine.analyzeAudioFile(file);
-          const { role, tags } = classifySampleRole(file.name, profile);
+          const { role, tags } = classifySampleRole(file.name, profile, relativePath);
 
           const sampleRecord: SampleRecord = {
             id: sampleId,

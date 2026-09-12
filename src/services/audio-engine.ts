@@ -122,6 +122,13 @@ export class AudioEngine {
   }
 
   /**
+   * Check if an audio buffer is cached in memory
+   */
+  isSampleCached(sampleId: string): boolean {
+    return this.activeKitBuffers.has(sampleId);
+  }
+
+  /**
    * Cache audio buffer for active kit pads so audition has 0ms latency
    */
   async cachePadAudio(sampleId: string, file: File): Promise<AudioBuffer> {

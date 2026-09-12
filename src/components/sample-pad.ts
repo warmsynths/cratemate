@@ -36,6 +36,14 @@ const ROLE_THEMES: Record<SampleRole, { border: string; glow: string; badgeBg: s
   }
 };
 
+const ALL_ROLES: SampleRole[] = [
+  'Kick/Low',
+  'Snare/Snap',
+  'Hat/Air',
+  'Tonal/Melodic',
+  'Texture/Wildcard'
+];
+
 @customElement('sample-pad')
 export class SamplePad extends LitElement {
   @property({ type: Object }) slotData!: PadSlot;
@@ -115,7 +123,7 @@ export class SamplePad extends LitElement {
       border: 1px solid #33394c;
     }
 
-    .role-badge {
+    .role-select-badge {
       font-size: 11px;
       font-weight: 700;
       padding: 2px 8px;
@@ -123,6 +131,18 @@ export class SamplePad extends LitElement {
       background: var(--role-badge-bg, rgba(0, 210, 211, 0.15));
       color: var(--role-badge-text, #00d2d3);
       border: 1px solid var(--role-border, rgba(0, 210, 211, 0.3));
+      cursor: pointer;
+      outline: none;
+      transition: all 0.15s;
+    }
+
+    .role-select-badge:hover {
+      filter: brightness(1.2);
+    }
+
+    .role-select-badge option {
+      background: #15171e;
+      color: #e2e8f0;
     }
 
     .sample-body {
@@ -164,11 +184,50 @@ export class SamplePad extends LitElement {
       background: rgba(56, 239, 125, 0.08);
     }
 
+    .pad-card.loading {
+      border-color: #00d2d3 !important;
+      box-shadow: 0 0 16px rgba(0, 210, 211, 0.35) !important;
+    }
+
     .waveform-container {
+      position: relative;
       background: #0d0f14;
       border-radius: 6px;
       padding: 4px;
       border: 1px solid #1c202a;
+      min-height: 48px;
+    }
+
+    .loading-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(13, 15, 20, 0.85);
+      backdrop-filter: blur(2px);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      color: #00d2d3;
+      font-size: 11px;
+      font-weight: 700;
+      z-index: 5;
+    }
+
+    .mini-spinner {
+      width: 12px;
+      height: 12px;
+      border: 2px solid rgba(0, 210, 211, 0.25);
+      border-top-color: #00d2d3;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
     }
 
     .pad-footer {
@@ -178,6 +237,7 @@ export class SamplePad extends LitElement {
       margin-top: 2px;
       padding-top: 6px;
       border-top: 1px solid #1c202a;
+      gap: 4px;
     }
 
     .action-btn {
@@ -185,12 +245,12 @@ export class SamplePad extends LitElement {
       border: 1px solid transparent;
       color: #8f9cae;
       border-radius: 6px;
-      padding: 4px 8px;
+      padding: 4px 7px;
       font-size: 11px;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
-      gap: 4px;
+      gap: 3px;
       transition: all 0.15s;
     }
 
@@ -218,6 +278,17 @@ export class SamplePad extends LitElement {
       border-radius: 50%;
       background: #3b4256;
       transition: background 0.1s;
+    }
+
+    .trigger-indicator.loading {
+      background: #00d2d3;
+      box-shadow: 0 0 8px #00d2d3;
+      animation: pulseIndicator 0.8s ease-in-out infinite alternate;
+    }
+
+    @keyframes pulseIndicator {
+      from { opacity: 0.4; transform: scale(0.9); }
+      to { opacity: 1; transform: scale(1.3); }
     }
 
     .pad-card.triggered .trigger-indicator {
@@ -248,6 +319,25 @@ export class SamplePad extends LitElement {
     }));
   }
 
+  private rerollSinglePad(e: Event) {
+    e.stopPropagation();
+    this.dispatchEvent(new CustomEvent('reroll-single-pad', {
+      detail: { padIndex: this.slotData.index },
+      bubbles: true,
+      composed: true
+    }));
+  }
+
+  private handleRoleSelect(e: Event) {
+    e.stopPropagation();
+    const newRole = (e.target as HTMLSelectElement).value as SampleRole;
+    this.dispatchEvent(new CustomEvent('change-pad-role', {
+      detail: { padIndex: this.slotData.index, newRole },
+      bubbles: true,
+      composed: true
+    }));
+  }
+
   private async copyPath(e: Event) {
     e.stopPropagation();
     if (!this.slotData.sample) return;
@@ -258,7 +348,6 @@ export class SamplePad extends LitElement {
     if (this.pathPrefix && this.pathPrefix.trim() !== '') {
       const cleanPrefix = this.pathPrefix.trim().replace(/[\\/]+$/, '');
       const cleanRel = sample.relativePath.replace(/^[\\/]+/, '');
-      // Format with backslash if Windows prefix, or slash
       const sep = cleanPrefix.includes('\\') ? '\\' : '/';
       fullPath = `${cleanPrefix}${sep}${cleanRel.replace(/\//g, sep)}`;
     }
@@ -298,7 +387,7 @@ export class SamplePad extends LitElement {
 
     return html`
       <div 
-        class="pad-card ${this.isTriggered || slot.isPlaying ? 'triggered' : ''} ${slot.locked ? 'locked' : ''}"
+        class="pad-card ${this.isTriggered || slot.isPlaying ? 'triggered' : ''} ${slot.locked ? 'locked' : ''} ${slot.isLoading ? 'loading' : ''}"
         style="
           --role-border: ${theme.border};
           --role-glow: ${theme.glow};
@@ -309,11 +398,23 @@ export class SamplePad extends LitElement {
       >
         <div class="pad-header">
           <div class="index-keybind">
-            <span class="trigger-indicator"></span>
+            <span class="trigger-indicator ${slot.isLoading ? 'loading' : ''}"></span>
             <span class="pad-index">PAD ${padNumber}</span>
             <span class="keybind-pill">${slot.keybind}</span>
           </div>
-          <span class="role-badge">${role}</span>
+
+          <!-- Interactive Role Switcher -->
+          <select 
+            class="role-select-badge"
+            .value=${role}
+            @click=${(e: Event) => e.stopPropagation()}
+            @change=${this.handleRoleSelect}
+            title="Change role for this pad slot"
+          >
+            ${ALL_ROLES.map(r => html`
+              <option value="${r}" ?selected=${r === role}>${r}</option>
+            `)}
+          </select>
         </div>
 
         <div class="sample-body">
@@ -328,6 +429,12 @@ export class SamplePad extends LitElement {
           </div>
 
           <div class="waveform-container">
+            ${slot.isLoading ? html`
+              <div class="loading-overlay">
+                <div class="mini-spinner"></div>
+                <span>Loading...</span>
+              </div>
+            ` : ''}
             <waveform-view
               .bins=${profile?.waveformBins || []}
               .role=${role}
@@ -345,12 +452,21 @@ export class SamplePad extends LitElement {
             ${slot.locked ? '🔒 Locked' : '🔓 Lock'}
           </button>
 
+          <!-- Single Pad Reroll Button -->
+          <button
+            class="action-btn"
+            @click=${this.rerollSinglePad}
+            title="Reroll only Pad ${padNumber}"
+          >
+            🎲 Reroll
+          </button>
+
           <button 
             class="action-btn ${this.copied ? 'copied' : ''}"
             @click=${this.copyPath}
             title="Copy path to clipboard"
           >
-            ${this.copied ? '✓ Copied' : '📋 Copy Path'}
+            ${this.copied ? '✓ Copied' : '📋 Copy'}
           </button>
         </div>
       </div>

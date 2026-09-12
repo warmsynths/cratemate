@@ -4,10 +4,12 @@ import { storage } from '../services/storage.ts';
 import { scanner } from '../services/scanner.ts';
 import { audioEngine } from '../services/audio-engine.ts';
 import { kitGenerator } from '../services/kit-generator.ts';
-import type { FolderSource, Kit, PadSlot, ScanProgress } from '../types/index.ts';
+import { FACTORY_PRESETS, DEFAULT_PRESET_ID } from '../services/presets.ts';
+import type { AcousticCriteria, FolderSource, Kit, KitPreset, PadSlot, SampleRole, ScanProgress } from '../types/index.ts';
 
 import './folder-manager.ts';
 import './kit-controls.ts';
+import './criteria-drawer.ts';
 import './pad-grid.ts';
 
 @customElement('crate-mate-app')
@@ -16,8 +18,13 @@ export class CrateMateApp extends LitElement {
   @state() private activeKit?: Kit;
   @state() private padCount: 4 | 6 | 8 = 8;
   @state() private isFolderManagerOpen = false;
+  @state() private isCriteriaDrawerOpen = false;
+  @state() private activePresetId: string = DEFAULT_PRESET_ID;
+  @state() private customPresets: KitPreset[] = [];
+  @state() private activeCriteria: AcousticCriteria = { ...FACTORY_PRESETS[0].criteria };
   @state() private scanProgress?: ScanProgress;
   @state() private totalIndexedCount = 0;
+  @state() private isGeneratingKit = false;
   @state() private toastMessage?: string;
   @state() private showHelpModal = false;
   @state() private volume = audioEngine.getVolume(); // defaults to 0.10 (10%)
@@ -33,6 +40,25 @@ export class CrateMateApp extends LitElement {
       background: #090a0f;
       color: #e2e8f0;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    /* Top indeterminate progress bar */
+    .top-progress-bar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, #00d2d3, #a55eea, #00d2d3);
+      background-size: 200% 100%;
+      animation: moveProgress 1.0s linear infinite;
+      z-index: 99999;
+      box-shadow: 0 0 10px rgba(0, 210, 211, 0.8);
+    }
+
+    @keyframes moveProgress {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
     }
 
     .app-shell {
@@ -233,7 +259,7 @@ export class CrateMateApp extends LitElement {
     main {
       display: flex;
       flex-direction: column;
-      gap: 18px;
+      gap: 14px;
     }
 
     /* Toast notification */
@@ -364,6 +390,22 @@ export class CrateMateApp extends LitElement {
     this.addEventListener('cancel-scan', this.handleCancelScan as EventListener);
     this.addEventListener('toast', ((e: Event) => this.handleToastEvent(e as CustomEvent<{ message: string }>)) as EventListener);
 
+    // Preset & Criteria Event Listeners
+    this.addEventListener('toggle-criteria-drawer', () => {
+      this.isCriteriaDrawerOpen = !this.isCriteriaDrawerOpen;
+    });
+    this.addEventListener('close-drawer', () => {
+      this.isCriteriaDrawerOpen = false;
+    });
+    this.addEventListener('select-preset', ((e: Event) => this.handleSelectPreset(e as CustomEvent<{ presetId: string }>)) as EventListener);
+    this.addEventListener('update-criteria', ((e: Event) => this.handleUpdateCriteria(e as CustomEvent<{ criteria: AcousticCriteria }>)) as EventListener);
+    this.addEventListener('apply-criteria', this.handleApplyCriteria as EventListener);
+    this.addEventListener('reset-criteria', this.handleResetCriteria as EventListener);
+    this.addEventListener('save-custom-preset', ((e: Event) => this.handleSaveCustomPreset(e as CustomEvent<{ name: string; icon: string; criteria: AcousticCriteria }>)) as EventListener);
+    this.addEventListener('delete-custom-preset', ((e: Event) => this.handleDeleteCustomPreset(e as CustomEvent<{ presetId: string }>)) as EventListener);
+    this.addEventListener('reroll-single-pad', ((e: Event) => this.handleRerollSinglePad(e as CustomEvent<{ padIndex: number }>)) as EventListener);
+    this.addEventListener('change-pad-role', ((e: Event) => this.handleChangePadRole(e as CustomEvent<{ padIndex: number; newRole: SampleRole }>)) as EventListener);
+
     await this.initApp();
   }
 
@@ -377,14 +419,40 @@ export class CrateMateApp extends LitElement {
   private async initApp() {
     await this.refreshData();
 
+    // Load custom presets
+    this.customPresets = await storage.getCustomPresets();
+
+    // Check active preset
+    const savedPresetId = await storage.getActivePresetId();
+    if (savedPresetId) {
+      this.activePresetId = savedPresetId;
+    }
+
+    const allPresets = [...FACTORY_PRESETS, ...this.customPresets];
+    const currentPreset = allPresets.find(p => p.id === this.activePresetId) || FACTORY_PRESETS[0];
+    this.activeCriteria = { ...currentPreset.criteria };
+
     // Check if active kit exists in storage, else generate initial kit
     const storedKit = await storage.getActiveKit();
     if (storedKit) {
       this.activeKit = storedKit;
       this.padCount = storedKit.padCount;
+      if (storedKit.presetId) {
+        this.activePresetId = storedKit.presetId;
+      }
+      if (storedKit.criteria) {
+        this.activeCriteria = storedKit.criteria;
+      }
     } else {
-      this.activeKit = await kitGenerator.generateKit(this.padCount);
+      this.activeKit = await kitGenerator.generateKit(
+        this.padCount,
+        undefined,
+        false,
+        this.activePresetId,
+        this.activeCriteria
+      );
     }
+    this.preloadKitAudio(this.activeKit);
   }
 
   private async refreshData() {
@@ -416,23 +484,46 @@ export class CrateMateApp extends LitElement {
     this.showToast(e.detail.message);
   };
 
+  private preloadKitAudio(kit?: Kit) {
+    if (!kit) return;
+    for (const pad of kit.pads) {
+      if (pad.sample && pad.sample.folderId !== 'demo_factory') {
+        scanner.getFileForSample(pad.sample).then(file => {
+          if (file) {
+            audioEngine.cachePadAudio(pad.sample!.id, file).catch(() => {});
+          }
+        }).catch(() => {});
+      }
+    }
+  }
+
   private handleAudition = async (e: CustomEvent<{ slot: PadSlot }>) => {
     const slot = e.detail.slot;
     if (!slot.sample) return;
 
-    // Visual feedback
-    slot.isPlaying = true;
-    this.requestUpdate();
+    const isCached = audioEngine.isSampleCached ? audioEngine.isSampleCached(slot.sample.id) : false;
+    if (!isCached) {
+      slot.isLoading = true;
+      this.requestUpdate();
+    } else {
+      slot.isPlaying = true;
+      this.requestUpdate();
+    }
 
     try {
       await audioEngine.playSample(slot.sample, () => scanner.getFileForSample(slot.sample!));
+      slot.isLoading = false;
+      slot.isPlaying = true;
+      this.requestUpdate();
     } catch (err) {
       console.warn('Audition playback error:', err);
+      slot.isLoading = false;
     } finally {
       setTimeout(() => {
         slot.isPlaying = false;
+        slot.isLoading = false;
         this.requestUpdate();
-      }, 250);
+      }, 220);
     }
   };
 
@@ -449,15 +540,171 @@ export class CrateMateApp extends LitElement {
 
   private handleRerollKit = async (e: CustomEvent<{ rerollAll: boolean }>) => {
     const rerollAll = e.detail.rerollAll;
-    this.activeKit = await kitGenerator.generateKit(this.padCount, this.activeKit, rerollAll);
-    this.showToast(rerollAll ? '⚡ Generated brand new kit!' : '🎲 Rerolled unlocked pads!');
+    this.isGeneratingKit = true;
+    try {
+      this.activeKit = await kitGenerator.generateKit(
+        this.padCount,
+        this.activeKit,
+        rerollAll,
+        this.activePresetId,
+        this.activeCriteria
+      );
+      this.showToast(rerollAll ? '⚡ Generated brand new kit!' : '🎲 Rerolled unlocked pads!');
+    } finally {
+      this.isGeneratingKit = false;
+      this.preloadKitAudio(this.activeKit);
+    }
   };
 
   private handleChangePadCount = async (e: CustomEvent<{ count: 4 | 6 | 8 }>) => {
     const newCount = e.detail.count;
     this.padCount = newCount;
-    this.activeKit = await kitGenerator.generateKit(newCount, this.activeKit, false);
-    this.showToast(`Switched to ${newCount}-pad layout`);
+    this.isGeneratingKit = true;
+    try {
+      this.activeKit = await kitGenerator.generateKit(
+        newCount,
+        this.activeKit,
+        false,
+        this.activePresetId,
+        this.activeCriteria
+      );
+      this.showToast(`Switched to ${newCount}-pad layout`);
+    } finally {
+      this.isGeneratingKit = false;
+      this.preloadKitAudio(this.activeKit);
+    }
+  };
+
+  private handleSelectPreset = async (e: CustomEvent<{ presetId: string }>) => {
+    const presetId = e.detail.presetId;
+    const allPresets = [...FACTORY_PRESETS, ...this.customPresets];
+    const preset = allPresets.find(p => p.id === presetId) || FACTORY_PRESETS[0];
+
+    this.activePresetId = preset.id;
+    this.activeCriteria = { ...preset.criteria };
+    await storage.saveActivePresetId(preset.id);
+    this.isGeneratingKit = true;
+
+    try {
+      this.activeKit = await kitGenerator.generateKit(
+        this.padCount,
+        this.activeKit,
+        false,
+        this.activePresetId,
+        this.activeCriteria
+      );
+      this.showToast(`Style: ${preset.icon} ${preset.name}`);
+    } finally {
+      this.isGeneratingKit = false;
+      this.preloadKitAudio(this.activeKit);
+    }
+  };
+
+  private handleUpdateCriteria = (e: CustomEvent<{ criteria: AcousticCriteria }>) => {
+    this.activeCriteria = { ...e.detail.criteria };
+  };
+
+  private handleApplyCriteria = async () => {
+    this.isGeneratingKit = true;
+    try {
+      this.activeKit = await kitGenerator.generateKit(
+        this.padCount,
+        this.activeKit,
+        false,
+        this.activePresetId,
+        this.activeCriteria
+      );
+      this.showToast('⚡ Applied criteria & refreshed kit');
+    } finally {
+      this.isGeneratingKit = false;
+      this.preloadKitAudio(this.activeKit);
+    }
+  };
+
+  private handleResetCriteria = async () => {
+    const allPresets = [...FACTORY_PRESETS, ...this.customPresets];
+    const preset = allPresets.find(p => p.id === this.activePresetId) || FACTORY_PRESETS[0];
+    this.activeCriteria = { ...preset.criteria };
+    this.isGeneratingKit = true;
+    try {
+      this.activeKit = await kitGenerator.generateKit(
+        this.padCount,
+        this.activeKit,
+        false,
+        this.activePresetId,
+        this.activeCriteria
+      );
+      this.showToast(`Reset criteria to ${preset.name}`);
+    } finally {
+      this.isGeneratingKit = false;
+      this.preloadKitAudio(this.activeKit);
+    }
+  };
+
+  private handleSaveCustomPreset = async (e: CustomEvent<{ name: string; icon: string; criteria: AcousticCriteria }>) => {
+    const newPreset: KitPreset = {
+      id: 'custom_' + Date.now().toString(36),
+      name: e.detail.name,
+      icon: e.detail.icon,
+      description: 'Custom user preset',
+      isFactory: false,
+      criteria: { ...e.detail.criteria }
+    };
+    await storage.saveCustomPreset(newPreset);
+    this.customPresets = await storage.getCustomPresets();
+    this.activePresetId = newPreset.id;
+    this.activeCriteria = { ...newPreset.criteria };
+    await storage.saveActivePresetId(newPreset.id);
+    this.showToast(`Saved preset: ${newPreset.icon} ${newPreset.name}`);
+  };
+
+  private handleDeleteCustomPreset = async (e: CustomEvent<{ presetId: string }>) => {
+    await storage.deleteCustomPreset(e.detail.presetId);
+    this.customPresets = await storage.getCustomPresets();
+    if (this.activePresetId === e.detail.presetId) {
+      this.activePresetId = DEFAULT_PRESET_ID;
+      this.activeCriteria = { ...FACTORY_PRESETS[0].criteria };
+      await storage.saveActivePresetId(DEFAULT_PRESET_ID);
+    }
+    this.showToast('Custom preset deleted');
+  };
+
+  private handleRerollSinglePad = async (e: CustomEvent<{ padIndex: number }>) => {
+    if (!this.activeKit) return;
+    const targetPad = this.activeKit.pads[e.detail.padIndex];
+    if (targetPad) {
+      targetPad.isLoading = true;
+      this.requestUpdate();
+    }
+    try {
+      this.activeKit = await kitGenerator.rerollPad(e.detail.padIndex, this.activeKit, this.activeCriteria);
+      this.preloadKitAudio(this.activeKit);
+      this.showToast(`🎲 Rerolled Pad ${e.detail.padIndex + 1}`);
+    } finally {
+      if (this.activeKit && this.activeKit.pads[e.detail.padIndex]) {
+        this.activeKit.pads[e.detail.padIndex].isLoading = false;
+      }
+      this.requestUpdate();
+    }
+  };
+
+  private handleChangePadRole = async (e: CustomEvent<{ padIndex: number; newRole: SampleRole }>) => {
+    if (!this.activeKit) return;
+    const targetPad = this.activeKit.pads[e.detail.padIndex];
+    if (targetPad) {
+      targetPad.isLoading = true;
+      this.requestUpdate();
+    }
+    try {
+      this.activeKit = await kitGenerator.setPadRole(e.detail.padIndex, e.detail.newRole, this.activeKit, this.activeCriteria);
+      this.preloadKitAudio(this.activeKit);
+      this.showToast(`Pad ${e.detail.padIndex + 1} set to ${e.detail.newRole}`);
+    } finally {
+      if (this.activeKit && this.activeKit.pads[e.detail.padIndex]) {
+        this.activeKit.pads[e.detail.padIndex].isLoading = false;
+      }
+      this.requestUpdate();
+    }
   };
 
   private handleExportKit = async () => {
@@ -487,13 +734,17 @@ export class CrateMateApp extends LitElement {
       this.showToast(`Added folder: ${folder.name}`);
       await this.refreshData();
 
-      // Automatically trigger initial scan of the newly added folder
       await scanner.scanFolder(folder);
       await this.refreshData();
       this.showToast(`Scan complete: ${folder.name}`);
 
-      // Reroll kit using newly discovered sounds
-      this.activeKit = await kitGenerator.generateKit(this.padCount, this.activeKit, false);
+      this.activeKit = await kitGenerator.generateKit(
+        this.padCount,
+        this.activeKit,
+        false,
+        this.activePresetId,
+        this.activeCriteria
+      );
     } catch (err: any) {
       if (err.name !== 'AbortError') {
         this.showToast(`Could not add folder: ${err.message || err}`);
@@ -507,8 +758,13 @@ export class CrateMateApp extends LitElement {
       await scanner.scanFolder(folder);
       await this.refreshData();
       this.showToast(`Scan complete: ${folder.name}`);
-      // Refresh kit with new samples
-      this.activeKit = await kitGenerator.generateKit(this.padCount, this.activeKit, false);
+      this.activeKit = await kitGenerator.generateKit(
+        this.padCount,
+        this.activeKit,
+        false,
+        this.activePresetId,
+        this.activeCriteria
+      );
     } catch (err: any) {
       this.showToast(`Scan failed: ${err.message || err}`);
     }
@@ -548,55 +804,52 @@ export class CrateMateApp extends LitElement {
   };
 
   private handleVolumeChange = (e: Event) => {
-    const input = e.target as HTMLInputElement;
-    const val = parseInt(input.value, 10) / 100;
+    const slider = e.target as HTMLInputElement;
+    const val = parseInt(slider.value, 10) / 100;
     this.volume = val;
-    if (val > 0) {
-      this.preMuteVolume = val;
-    }
     audioEngine.setVolume(val);
   };
 
-  private toggleMute = () => {
+  private handleToggleMute = () => {
     if (this.volume > 0) {
       this.preMuteVolume = this.volume;
       this.volume = 0;
       audioEngine.setVolume(0);
-      this.showToast('Audio muted (0%)');
     } else {
-      const restore = this.preMuteVolume > 0 ? this.preMuteVolume : 0.10;
+      const restore = this.preMuteVolume || 0.10;
       this.volume = restore;
       audioEngine.setVolume(restore);
-      this.showToast(`Volume restored to ${Math.round(restore * 100)}%`);
     }
   };
 
   render() {
     const lockedCount = this.activeKit?.pads.filter(p => p.locked).length || 0;
-    // Active folder path prefix if any
-    const defaultPrefix = this.folders[0]?.pathPrefix || '';
+    const defaultPrefix = this.folders.find(f => f.pathPrefix)?.pathPrefix || '';
+    const allPresets = [...FACTORY_PRESETS, ...this.customPresets];
 
     return html`
+      ${this.isGeneratingKit ? html`<div class="top-progress-bar"></div>` : ''}
       <div class="app-shell">
-        <!-- Top Navigation Bar -->
+        <!-- Header -->
         <header>
           <div class="brand-group">
-            <div class="logo-icon">▲</div>
+            <div class="logo-icon">C</div>
             <div class="brand-text">
               <div class="brand-title">
-                CRATEMATE
-                <span class="brand-badge">LIT + VITE</span>
+                <span>CRATEMATE</span>
+                <span class="brand-badge">DSP V2</span>
               </div>
-              <div class="brand-subtitle">
-                Acoustic Profile & Harmonic Sample Curation
-              </div>
+              <span class="brand-subtitle">Smart Sample Curation & Kit Generator</span>
             </div>
           </div>
 
           <div class="nav-actions">
-            <!-- Master Volume Control -->
-            <div class="volume-widget" title="Master Audition Volume (Default: 10%)">
-              <button class="btn-mute" @click=${this.toggleMute} title="${this.volume === 0 ? 'Unmute' : 'Mute'}">
+            <div class="volume-widget">
+              <button 
+                class="btn-mute" 
+                @click=${this.handleToggleMute}
+                title="${this.volume === 0 ? 'Unmute' : 'Mute'}"
+              >
                 ${this.volume === 0 ? '🔇' : this.volume < 0.3 ? '🔈' : this.volume < 0.7 ? '🔉' : '🔊'}
               </button>
               <input
@@ -649,7 +902,22 @@ export class CrateMateApp extends LitElement {
             .kit=${this.activeKit}
             .padCount=${this.padCount}
             .lockedCount=${lockedCount}
+            .activePresetId=${this.activePresetId}
+            .presets=${allPresets}
+            .isCriteriaDrawerOpen=${this.isCriteriaDrawerOpen}
+            .isGenerating=${this.isGeneratingKit}
           ></kit-controls>
+
+          <!-- Criteria Drawer Panel -->
+          <criteria-drawer
+            .isOpen=${this.isCriteriaDrawerOpen}
+            .activePresetId=${this.activePresetId}
+            .presets=${allPresets}
+            .criteria=${this.activeCriteria}
+            .folders=${this.folders}
+            .padCount=${this.padCount}
+            .currentPads=${this.activeKit?.pads || []}
+          ></criteria-drawer>
 
           <!-- Interactive Audition Pad Grid -->
           <pad-grid
@@ -697,6 +965,16 @@ export class CrateMateApp extends LitElement {
                 <div class="hotkey-item">
                   <span>Pad Lock (🔒)</span>
                   <span>Preserve sound when rerolling kit</span>
+                </div>
+
+                <div class="hotkey-item">
+                  <span>Reroll Pad (🎲)</span>
+                  <span>Reroll only that individual slot</span>
+                </div>
+
+                <div class="hotkey-item">
+                  <span>Pad Role (🏷️)</span>
+                  <span>Change slot role directly on card</span>
                 </div>
 
                 <div class="hotkey-item">

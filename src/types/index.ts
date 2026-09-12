@@ -58,6 +58,47 @@ export interface PadSlot {
   sample?: SampleRecord;
   locked: boolean;
   isPlaying: boolean;
+  isLoading?: boolean;
+}
+
+export interface RoleAcousticTarget {
+  durationMin?: number; // in seconds (e.g., 0.04s for hats, 0.2s for kicks)
+  durationMax?: number; // in seconds (e.g., 0.25s for hats, 2.0s for kicks)
+  sharpnessTarget?: 'any' | 'punchy' | 'moderate' | 'soft';
+  minSharpness?: number; // 0-100
+  maxSharpness?: number; // 0-100
+  preferredBand?: 'low' | 'mid' | 'high';
+  minBandEnergy?: number; // threshold (0-1), e.g. low >= 0.45
+  keywords?: string[]; // positive keywords (e.g. ['808', 'sub', 'punch'])
+  negativeKeywords?: string[]; // negative keywords (e.g. ['acoustic', 'vintage'])
+}
+
+export interface AcousticCriteria {
+  durationMin?: number; // fallback min duration in seconds
+  durationMax?: number; // fallback max duration in seconds
+  sharpnessTarget?: 'any' | 'punchy' | 'moderate' | 'soft';
+  frequencyBias?: 'any' | 'warm-sub' | 'mid-focused' | 'bright-air';
+  folderIds?: string[]; // if set, only select samples from these folder IDs
+  keyLockMode?: 'auto' | 'strict' | 'any';
+  lockedCamelotKey?: string; // e.g. "8A"
+  roleTemplates?: Partial<Record<4 | 6 | 8, SampleRole[]>>;
+  roleProfiles?: Partial<Record<SampleRole, RoleAcousticTarget>>;
+  macroPunch?: number; // 0-100 (scales transient targets)
+  macroLength?: number; // 0-100 (scales duration targets)
+  macroTone?: 'neutral' | 'warm' | 'bright';
+  genreKeywords?: string[]; // global preset genre keywords
+  genreAffinityStrength?: number; // 0-100 (weight of keyword boost)
+  antiMaskingEnabled?: boolean; // prevent sub-bass frequency clash
+  packAffinityEnabled?: boolean; // bias towards same pack/recording session
+}
+
+export interface KitPreset {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  isFactory: boolean;
+  criteria: AcousticCriteria;
 }
 
 export interface Kit {
@@ -68,6 +109,10 @@ export interface Kit {
   dominantKey?: string; // harmonic key if tonal samples exist
   dominantCamelot?: string;
   generatedAt: number;
+  presetId?: string;
+  presetName?: string;
+  criteria?: AcousticCriteria;
+  fallbackNotices?: string[];
 }
 
 export interface ScanProgress {

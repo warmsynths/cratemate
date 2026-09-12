@@ -1,12 +1,16 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
-import type { Kit } from '../types/index.ts';
+import type { Kit, KitPreset } from '../types/index.ts';
 
 @customElement('kit-controls')
 export class KitControls extends LitElement {
   @property({ type: Object }) kit?: Kit;
   @property({ type: Number }) padCount: 4 | 6 | 8 = 8;
   @property({ type: Number }) lockedCount = 0;
+  @property({ type: String }) activePresetId = 'standard';
+  @property({ type: Array }) presets: KitPreset[] = [];
+  @property({ type: Boolean }) isCriteriaDrawerOpen = false;
+  @property({ type: Boolean }) isGenerating = false;
 
   static styles = css`
     :host {
@@ -63,6 +67,19 @@ export class KitControls extends LitElement {
     .kit-meta-desc {
       font-size: 11px;
       color: #8f9cae;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .fallback-alert {
+      color: #f39c12;
+      font-size: 10px;
+      font-weight: 700;
+      background: rgba(243, 156, 18, 0.12);
+      padding: 2px 6px;
+      border-radius: 4px;
+      border: 1px solid rgba(243, 156, 18, 0.3);
     }
 
     .actions-group {
@@ -70,6 +87,33 @@ export class KitControls extends LitElement {
       flex-wrap: wrap;
       align-items: center;
       gap: 10px;
+    }
+
+    /* Preset selector select dropdown */
+    .preset-selector-box {
+      display: inline-flex;
+      align-items: center;
+      background: #0d0f14;
+      border: 1px solid #282f3f;
+      border-radius: 8px;
+      padding: 2px 8px;
+      gap: 6px;
+    }
+
+    .preset-select {
+      background: transparent;
+      border: none;
+      color: #00d2d3;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      outline: none;
+      padding: 4px 0;
+    }
+
+    .preset-select option {
+      background: #15171e;
+      color: #e2e8f0;
     }
 
     .pad-selector {
@@ -120,6 +164,44 @@ export class KitControls extends LitElement {
 
     .btn:active {
       transform: scale(0.97);
+    }
+
+    .btn:disabled {
+      opacity: 0.65;
+      cursor: not-allowed;
+      transform: none !important;
+    }
+
+    .btn-spinner {
+      width: 11px;
+      height: 11px;
+      border: 2px solid rgba(255, 255, 255, 0.25);
+      border-top-color: #ffffff;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      display: inline-block;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .btn-criteria {
+      background: #181b24;
+      color: #cbd5e1;
+      border-color: #282f3f;
+    }
+
+    .btn-criteria:hover {
+      background: #232734;
+      color: #ffffff;
+      border-color: #3b4458;
+    }
+
+    .btn-criteria.active {
+      background: rgba(0, 210, 211, 0.15);
+      border-color: #00d2d3;
+      color: #00d2d3;
     }
 
     .btn-primary {
@@ -176,6 +258,22 @@ export class KitControls extends LitElement {
     }));
   }
 
+  private handlePresetChange(e: Event) {
+    const val = (e.target as HTMLSelectElement).value;
+    this.dispatchEvent(new CustomEvent('select-preset', {
+      detail: { presetId: val },
+      bubbles: true,
+      composed: true
+    }));
+  }
+
+  private toggleCriteriaDrawer() {
+    this.dispatchEvent(new CustomEvent('toggle-criteria-drawer', {
+      bubbles: true,
+      composed: true
+    }));
+  }
+
   private rerollEntire() {
     this.dispatchEvent(new CustomEvent('reroll-kit', {
       detail: { rerollAll: true },
@@ -203,6 +301,7 @@ export class KitControls extends LitElement {
     const kit = this.kit;
     const name = kit ? kit.name : 'Ready Kit';
     const camelot = kit?.dominantCamelot;
+    const hasFallbacks = kit?.fallbackNotices && kit.fallbackNotices.length > 0;
 
     return html`
       <div class="controls-panel">
@@ -216,11 +315,37 @@ export class KitControls extends LitElement {
             ` : ''}
           </div>
           <div class="kit-meta-desc">
-            Complementary 5-role balanced acoustic palette • Harmonic key bias active
+            <span>Acoustic scoring active</span>
+            ${hasFallbacks ? html`
+              <span class="fallback-alert" title="${kit?.fallbackNotices?.join(' • ')}">
+                ⚠️ Criteria Relaxed for ${kit?.fallbackNotices?.length} pad(s)
+              </span>
+            ` : ''}
           </div>
         </div>
 
         <div class="actions-group">
+          <!-- Preset Selector -->
+          <div class="preset-selector-box" title="Select Kit Style Preset">
+            <span>🎛️</span>
+            <select class="preset-select" .value=${this.activePresetId} @change=${this.handlePresetChange}>
+              ${this.presets.map(p => html`
+                <option value="${p.id}" ?selected=${p.id === this.activePresetId}>
+                  ${p.icon} ${p.name}
+                </option>
+              `)}
+            </select>
+          </div>
+
+          <!-- ⚙️ Criteria Drawer Toggle -->
+          <button
+            class="btn btn-criteria ${this.isCriteriaDrawerOpen ? 'active' : ''}"
+            @click=${this.toggleCriteriaDrawer}
+            title="Configure kit generation criteria, folder sources, and pad roles"
+          >
+            ⚙️ Criteria
+          </button>
+
           <!-- 4, 6, 8 Pad selector -->
           <div class="pad-selector">
             <button 
@@ -240,20 +365,22 @@ export class KitControls extends LitElement {
           <!-- Reroll Unlocked -->
           <button 
             class="btn btn-secondary"
+            ?disabled=${this.isGenerating}
             @click=${this.rerollUnlocked}
             title="Reroll only unlocked slots, keeping locked pads intact"
           >
-            🎲 Reroll Unlocked
+            ${this.isGenerating ? html`<span class="btn-spinner"></span> Rerolling...` : html`🎲 Reroll Unlocked`}
             ${this.lockedCount > 0 ? html`<span class="lock-counter-tag">${this.lockedCount} Locked</span>` : ''}
           </button>
 
           <!-- Reroll Entire Kit -->
           <button 
             class="btn btn-primary"
+            ?disabled=${this.isGenerating}
             @click=${this.rerollEntire}
             title="Reroll all pads for a fresh acoustic palette"
           >
-            ⚡ Reroll Entire Kit
+            ${this.isGenerating ? html`<span class="btn-spinner"></span> Generating...` : html`⚡ Reroll Entire Kit`}
           </button>
 
           <!-- Export Kit Folder -->

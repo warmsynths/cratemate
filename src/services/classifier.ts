@@ -6,9 +6,41 @@ const HAT_REGEX = /\b(hat|hh|hihat|hi-?hat|open-?hat|closed-?hat|oh|ch|cymbal|cy
 const TONAL_REGEX = /\b(synth|lead|melody|chord|pad|key|keys|piano|pluck|rhodes|bass|bassline|flute|guitar|harp|organ|sax|trumpet|horn|vocal|vox|acapella|adlib|tonal|root|arp)\b/i;
 const TEXTURE_REGEX = /\b(fx|foley|sweep|riser|fall|downlifter|uplifter|noise|vinyl|ambient|atmo|atmosphere|texture|scratch|drone|glitch|impact|whoosh)\b/i;
 
-export function classifySampleRole(fileName: string, profile: AcousticProfile): { role: SampleRole; tags: string[] } {
+/**
+ * Tokenize file name and directory path to extract semantic genre/instrument tokens
+ */
+export function extractSampleTokens(relativePath: string = '', fileName: string = ''): string[] {
+  const combined = `${relativePath} ${fileName}`.toLowerCase();
+  const rawTokens = combined
+    .replace(/\.[a-z0-9]+$/i, '') // remove extension
+    .split(/[\/\\_\-\s\.\(\)\[\]0-9]+/);
+
+  const stopWords = new Set(['the', 'and', 'a', 'in', 'of', 'vol', 'bpm', 'wav', 'mp3', 'aif', 'flac', 'ogg', 'sample', 'audio']);
+  const tokens = new Set<string>();
+
+  for (const t of rawTokens) {
+    const trimmed = t.trim();
+    if (trimmed.length >= 2 && !stopWords.has(trimmed)) {
+      tokens.add(trimmed);
+    }
+  }
+
+  return Array.from(tokens);
+}
+
+export function classifySampleRole(
+  fileName: string,
+  profile: AcousticProfile,
+  relativePath: string = ''
+): { role: SampleRole; tags: string[] } {
   const tags: string[] = [];
   const cleanName = fileName.toLowerCase().replace(/[-_.]/g, ' ');
+
+  // Extract path and filename tokens for semantic genre matching
+  const pathTokens = extractSampleTokens(relativePath, fileName);
+  for (const token of pathTokens) {
+    tags.push(`tag:${token}`);
+  }
 
   // Detect filename cues
   const hasKickName = KICK_REGEX.test(cleanName);

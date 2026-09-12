@@ -1,10 +1,12 @@
 import { get, set, del, keys } from 'idb-keyval';
-import type { FolderSource, SampleRecord, SampleRole, Kit } from '../types/index.ts';
+import type { FolderSource, SampleRecord, SampleRole, Kit, KitPreset } from '../types/index.ts';
 
 const FOLDERS_KEY = 'cratemate_folder_sources';
 const SAMPLES_PREFIX = 'cratemate_sample_';
 const ACTIVE_KIT_KEY = 'cratemate_active_kit';
 const FOLDER_HANDLES_PREFIX = 'cratemate_handle_';
+const CUSTOM_PRESETS_KEY = 'cratemate_custom_presets';
+const ACTIVE_PRESET_ID_KEY = 'cratemate_active_preset_id';
 
 export class StorageService {
   /**
@@ -144,6 +146,50 @@ export class StorageService {
    */
   async getActiveKit(): Promise<Kit | undefined> {
     return await get<Kit>(ACTIVE_KIT_KEY);
+  }
+
+  /**
+   * Get all custom user presets
+   */
+  async getCustomPresets(): Promise<KitPreset[]> {
+    return (await get<KitPreset[]>(CUSTOM_PRESETS_KEY)) || [];
+  }
+
+  /**
+   * Save or update a custom user preset
+   */
+  async saveCustomPreset(preset: KitPreset): Promise<void> {
+    const presets = await this.getCustomPresets();
+    const idx = presets.findIndex(p => p.id === preset.id);
+    if (idx >= 0) {
+      presets[idx] = preset;
+    } else {
+      presets.push(preset);
+    }
+    await set(CUSTOM_PRESETS_KEY, presets);
+  }
+
+  /**
+   * Delete a custom preset by ID
+   */
+  async deleteCustomPreset(presetId: string): Promise<void> {
+    const presets = await this.getCustomPresets();
+    const filtered = presets.filter(p => p.id !== presetId);
+    await set(CUSTOM_PRESETS_KEY, filtered);
+  }
+
+  /**
+   * Get ID of last active preset
+   */
+  async getActivePresetId(): Promise<string | undefined> {
+    return await get<string>(ACTIVE_PRESET_ID_KEY);
+  }
+
+  /**
+   * Save ID of active preset
+   */
+  async saveActivePresetId(presetId: string): Promise<void> {
+    await set(ACTIVE_PRESET_ID_KEY, presetId);
   }
 
   /**
