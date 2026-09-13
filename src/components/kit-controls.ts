@@ -383,13 +383,13 @@ export class KitControls extends LitElement {
             ${this.isGenerating ? html`<span class="btn-spinner"></span> Generating...` : html`⚡ Reroll Entire Kit`}
           </button>
 
-          <!-- Export Kit Folder -->
+          <!-- Hardware Export Modal Trigger -->
           <button 
             class="btn btn-export"
             @click=${this.exportKit}
-            title="Export all picked samples into a destination folder via File System Access API"
+            title="Package and export kit for Dirtywave M8, Roland SP-404MKII, or direct SD Card / ZIP"
           >
-            📁 Export Kit
+            🎛️ Package Kit
           </button>
         </div>
       </div>

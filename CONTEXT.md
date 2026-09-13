@@ -50,3 +50,33 @@ An audition and performance cell within a Kit:
 - **Locked State**: When locked, generating or rerolling a kit preserves this sample while rerolling all unlocked pads.
 - **Audition State**: Triggering triggers low-latency Web Audio playback with active trigger animation.
 - **Export Action**: Quick copy of sample path or direct file download / folder export.
+
+### Hardware Target
+A physical groovebox, tracker, or hardware sampler device receiving exported kits.
+- **Dirtywave M8**: 8-track portable tracker operating natively at 44.1 kHz 16/24-bit with `/Samples/` SD card file organization and `SLICED` sample chain playback.
+- **Roland SP-404MKII**: 16-pad linear sampler operating natively at 48 kHz 16-bit with `/ROLAND/IMPORT/` SD card file organization and 16-pad bank mapping (`A01`–`A16`).
+- **Universal**: Standardized sequential kit format (`01_`–`08_`) compatible with general DAWs, MPCs, and hardware samplers.
+
+### Hardware Profile
+The technical and structural formatting specification tailored to a specific Hardware Target:
+- **Target Sample Rate & Bit Depth**: 44.1 kHz 16-bit PCM (M8) or 48 kHz 16-bit PCM (SP-404MKII).
+- **Directory Hierarchy**: SD card destination path conventions (e.g. `/Samples/CrateMate/<KitName>` vs `/ROLAND/IMPORT/CrateMate/<KitName>`).
+- **File Naming Schema**: Track/pad index and role prefixing (e.g. `01_Kick_...` for M8, `A01_Kick_...` for SP-404MKII).
+
+### Sample Chain
+A single contiguous linear PCM WAV file containing all samples of a Kit concatenated at uniform time slice intervals.
+- **Equal-Division Slices**: Uniform slice length (longest sample rounded up to power-of-two or beat interval) allowing hardware slice engines to access all kit sounds via slice indices without requiring separate tracks or instrument slots.
+- **Slice Count**: Matches kit pad count (e.g. 4, 6, or 8 slices).
+
+### Kit Companion
+A plain-text quick-reference file (`KIT_INFO.txt`) packaged alongside samples containing musical and operational kit metadata:
+- **Musical Profile**: Kit name, dominant Camelot key, musical root key, and suggested playback BPM.
+- **Role Map**: Listing of track/pad index to role and sample source.
+
+### Export Package
+The complete, structured output of an exported Kit ready for hardware ingestion:
+- **Discrete WAVs**: Normalized, resampled individual sample files.
+- **Sample Chain**: Single concatenated slice file (`[KitName]_Chain.wav`).
+- **Kit Companion**: Reference cheat-sheet (`KIT_INFO.txt`).
+- **Delivery Modes**: Direct SD Card / local folder creation via File System Access API or zero-dependency `.zip` file download.
+

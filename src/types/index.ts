@@ -125,3 +125,19 @@ export interface ScanProgress {
   currentFile?: string;
   error?: string;
 }
+
+export type HardwareTarget = 'm8' | 'sp404mk2' | 'dual';
+
+export interface HardwareExportOptions {
+  target: HardwareTarget;
+  includeSampleChain: boolean;
+  convertToHardwareSpec: boolean;
+  normalizeAudio: boolean;
+  includeKitInfo: boolean;
+}
+
+export interface HardwareFileEntry {
+  relativePath: string;
+  data: Uint8Array;
+}
+

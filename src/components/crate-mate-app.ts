@@ -11,6 +11,7 @@ import './folder-manager.ts';
 import './kit-controls.ts';
 import './criteria-drawer.ts';
 import './pad-grid.ts';
+import './hardware-export-modal.ts';
 
 @customElement('crate-mate-app')
 export class CrateMateApp extends LitElement {
@@ -29,6 +30,7 @@ export class CrateMateApp extends LitElement {
   @state() private showHelpModal = false;
   @state() private volume = audioEngine.getVolume(); // defaults to 0.10 (10%)
   @state() private preMuteVolume = 0.10;
+  @state() private isExportModalOpen = false;
 
   private toastTimeout = 0;
   private unsubscribeProgress?: () => void;
@@ -707,25 +709,18 @@ export class CrateMateApp extends LitElement {
     }
   };
 
-  private handleExportKit = async () => {
+  private handleExportKit = () => {
     if (!this.activeKit) return;
     const samples = this.activeKit.pads
       .map(p => p.sample)
       .filter((s): s is NonNullable<typeof s> => !!s);
 
     if (samples.length === 0) {
-      this.showToast('No samples in current kit to export');
+      this.showToast('No samples in current kit to package');
       return;
     }
 
-    try {
-      const exportedCount = await scanner.exportKitToFolder(this.activeKit.name, samples);
-      this.showToast(`✅ Exported ${exportedCount} samples to new folder!`);
-    } catch (err: any) {
-      if (err.name !== 'AbortError') {
-        this.showToast(`Export failed: ${err.message || err}`);
-      }
-    }
+    this.isExportModalOpen = true;
   };
 
   private handleAddFolder = async () => {
@@ -987,6 +982,13 @@ export class CrateMateApp extends LitElement {
             </div>
           </div>
         ` : ''}
+
+        <!-- Hardware Export & Packaging Modal -->
+        <hardware-export-modal
+          .isOpen=${this.isExportModalOpen}
+          .kit=${this.activeKit}
+          @close-export-modal=${() => { this.isExportModalOpen = false; }}
+        ></hardware-export-modal>
       </div>
     `;
   }
