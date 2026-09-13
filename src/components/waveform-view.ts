@@ -15,6 +15,7 @@ export class WaveformView extends LitElement {
   @property({ type: Array }) bins: number[] = [];
   @property({ type: String }) role: SampleRole = 'Kick/Low';
   @property({ type: Boolean }) isPlaying = false;
+  @property({ type: Number }) duration = 0.4;
 
   static styles = css`
     :host {
@@ -65,11 +66,11 @@ export class WaveformView extends LitElement {
   private startPlayAnimation() {
     this.playProgress = 0;
     const startTime = performance.now();
-    const duration = 400; // default visual playhead pulse
+    const durationMs = Math.min(Math.max((this.duration || 0.4) * 1000, 200), 2000);
 
     const animate = (now: number) => {
       const elapsed = now - startTime;
-      this.playProgress = Math.min(1.0, elapsed / duration);
+      this.playProgress = Math.min(1.0, elapsed / durationMs);
       this.draw();
 
       if (this.playProgress < 1.0 && this.isPlaying) {

@@ -489,43 +489,46 @@ export class CrateMateApp extends LitElement {
   private preloadKitAudio(kit?: Kit) {
     if (!kit) return;
     for (const pad of kit.pads) {
-      if (pad.sample && pad.sample.folderId !== 'demo_factory') {
+      if (!pad.sample) continue;
+      if (pad.sample.folderId === 'demo_factory') {
+        audioEngine.getOrCreateSampleBuffer(pad.sample);
+      } else {
         scanner.getFileForSample(pad.sample).then(file => {
           if (file) {
             audioEngine.cachePadAudio(pad.sample!.id, file).catch(() => {});
+          } else {
+            audioEngine.getOrCreateSampleBuffer(pad.sample!);
           }
-        }).catch(() => {});
+        }).catch(() => {
+          audioEngine.getOrCreateSampleBuffer(pad.sample!);
+        });
       }
     }
   }
 
-  private handleAudition = async (e: CustomEvent<{ slot: PadSlot }>) => {
+  private handleAudition = async (e: CustomEvent<{ slot: PadSlot; padIndex?: number }>) => {
     const slot = e.detail.slot;
     if (!slot.sample) return;
 
     const isCached = audioEngine.isSampleCached ? audioEngine.isSampleCached(slot.sample.id) : false;
     if (!isCached) {
       slot.isLoading = true;
-      this.requestUpdate();
-    } else {
-      slot.isPlaying = true;
-      this.requestUpdate();
+      if (this.activeKit) {
+        this.activeKit = { ...this.activeKit, pads: [...this.activeKit.pads] };
+      }
     }
 
     try {
       await audioEngine.playSample(slot.sample, () => scanner.getFileForSample(slot.sample!));
-      slot.isLoading = false;
-      slot.isPlaying = true;
-      this.requestUpdate();
     } catch (err) {
       console.warn('Audition playback error:', err);
-      slot.isLoading = false;
     } finally {
-      setTimeout(() => {
-        slot.isPlaying = false;
+      if (slot.isLoading) {
         slot.isLoading = false;
-        this.requestUpdate();
-      }, 220);
+        if (this.activeKit) {
+          this.activeKit = { ...this.activeKit, pads: [...this.activeKit.pads] };
+        }
+      }
     }
   };
 

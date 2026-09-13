@@ -19,20 +19,18 @@ export class HardwarePackagerService {
    * Helper to decode a SampleRecord into an AudioBuffer using AudioEngine
    */
   async getAudioBufferForSample(sample: SampleRecord): Promise<AudioBuffer | null> {
-    // Check if audioEngine has it cached
-    if (audioEngine.isSampleCached(sample.id)) {
-      const file = await scanner.getFileForSample(sample);
-      if (file) {
-        return await audioEngine.cachePadAudio(sample.id, file);
-      }
+    // 1. Check if audioEngine already has it cached
+    const cached = audioEngine.getSampleBuffer(sample.id);
+    if (cached) return cached;
+
+    // 2. Try loading from local file handle
+    const file = await scanner.getFileForSample(sample);
+    if (file) {
+      return await audioEngine.cachePadAudio(sample.id, file);
     }
 
-    const file = await scanner.getFileForSample(sample);
-    if (!file) return null;
-
-    const arrayBuffer = await file.arrayBuffer();
-    const ctx = audioEngine.getContext();
-    return await ctx.decodeAudioData(arrayBuffer);
+    // 3. Fall back to distinct procedural audio buffer (ensures demo kits export full audio)
+    return audioEngine.getOrCreateSampleBuffer(sample);
   }
 
   /**

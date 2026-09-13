@@ -1,7 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 import type { PadSlot } from '../types/index.ts';
-import './sample-pad.ts';
+import { SamplePad } from './sample-pad.ts';
 
 const KEY_MAP: Record<string, number> = {
   // Numbers
@@ -76,9 +76,18 @@ export class PadGrid extends LitElement {
   }
 
   private handleKeyDown = (e: KeyboardEvent) => {
-    // Ignore keystrokes when focused in an input or textarea
-    const target = e.target as HTMLElement;
-    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+    // Ignore repeat key events so holding down a key doesn't stutter/machine-gun audio
+    if (e.repeat) return;
+
+    // Ignore keystrokes when focused in an input, textarea, select, or editable element
+    const path = e.composedPath();
+    const activeEl = (path[0] as HTMLElement) || (e.target as HTMLElement);
+    if (activeEl && (
+      activeEl.tagName === 'INPUT' || 
+      activeEl.tagName === 'TEXTAREA' || 
+      activeEl.tagName === 'SELECT' || 
+      activeEl.isContentEditable
+    )) {
       return;
     }
 
@@ -86,18 +95,29 @@ export class PadGrid extends LitElement {
     if (key in KEY_MAP) {
       const padIndex = KEY_MAP[key];
       if (padIndex < this.pads.length) {
-        const slot = this.pads[padIndex];
-        if (slot) {
-          e.preventDefault();
-          this.dispatchEvent(new CustomEvent('audition', {
-            detail: { slot },
-            bubbles: true,
-            composed: true
-          }));
-        }
+        e.preventDefault();
+        this.triggerPadByIndex(padIndex);
       }
     }
   };
+
+  public triggerPadByIndex(padIndex: number) {
+    if (padIndex < 0 || padIndex >= this.pads.length) return;
+    const samplePads = this.shadowRoot?.querySelectorAll<SamplePad>('sample-pad');
+    const padEl = samplePads?.[padIndex];
+    if (padEl && typeof padEl.trigger === 'function') {
+      padEl.trigger();
+    } else {
+      const slot = this.pads[padIndex];
+      if (slot) {
+        this.dispatchEvent(new CustomEvent('audition', {
+          detail: { slot, padIndex },
+          bubbles: true,
+          composed: true
+        }));
+      }
+    }
+  }
 
   render() {
     const count = this.pads.length || 8;

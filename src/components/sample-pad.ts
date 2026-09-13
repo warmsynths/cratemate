@@ -82,8 +82,19 @@ export class SamplePad extends LitElement {
     .pad-card.triggered {
       transform: scale(0.98);
       background: #202432;
-      box-shadow: 0 0 20px var(--role-glow, rgba(0, 210, 211, 0.5)) !important;
+      box-shadow: 0 0 20px var(--role-glow, rgba(0, 210, 211, 0.5)), inset 0 0 14px var(--role-glow, rgba(0, 210, 211, 0.2)) !important;
       border-color: var(--role-badge-text, #00d2d3) !important;
+    }
+
+    .pad-card.triggered .keybind-pill {
+      background: var(--role-badge-bg, rgba(0, 210, 211, 0.2));
+      color: var(--role-badge-text, #00d2d3);
+      border-color: var(--role-badge-text, #00d2d3);
+      box-shadow: 0 0 8px var(--role-glow, rgba(0, 210, 211, 0.4));
+    }
+
+    .pad-card.triggered .pad-index {
+      color: var(--role-badge-text, #00d2d3);
     }
 
     .pad-card.locked {
@@ -110,6 +121,7 @@ export class SamplePad extends LitElement {
       letter-spacing: 0.08em;
       color: #8f9cae;
       text-transform: uppercase;
+      transition: color 0.15s;
     }
 
     .keybind-pill {
@@ -121,6 +133,7 @@ export class SamplePad extends LitElement {
       padding: 2px 6px;
       border-radius: 4px;
       border: 1px solid #33394c;
+      transition: all 0.15s;
     }
 
     .role-select-badge {
@@ -293,22 +306,41 @@ export class SamplePad extends LitElement {
 
     .pad-card.triggered .trigger-indicator {
       background: #2ecc71;
-      box-shadow: 0 0 8px #2ecc71;
+      box-shadow: 0 0 10px #2ecc71, 0 0 4px #ffffff;
+      transform: scale(1.4);
     }
   `;
 
-  private triggerPad() {
+  private triggerTimer: number | null = null;
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    if (this.triggerTimer) {
+      clearTimeout(this.triggerTimer);
+      this.triggerTimer = null;
+    }
+  }
+
+  public trigger = (options?: { pulseMs?: number }) => {
     this.isTriggered = true;
-    setTimeout(() => {
+    if (this.triggerTimer) {
+      clearTimeout(this.triggerTimer);
+    }
+
+    const durationSec = this.slotData?.sample?.acousticProfile?.duration || 0.3;
+    const pulseMs = options?.pulseMs || Math.min(Math.max(durationSec * 1000, 240), 900);
+
+    this.triggerTimer = window.setTimeout(() => {
       this.isTriggered = false;
-    }, 180);
+      this.triggerTimer = null;
+    }, pulseMs);
 
     this.dispatchEvent(new CustomEvent('audition', {
-      detail: { slot: this.slotData },
+      detail: { slot: this.slotData, padIndex: this.slotData.index },
       bubbles: true,
       composed: true
     }));
-  }
+  };
 
   private toggleLock(e: Event) {
     e.stopPropagation();
@@ -387,14 +419,14 @@ export class SamplePad extends LitElement {
 
     return html`
       <div 
-        class="pad-card ${this.isTriggered || slot.isPlaying ? 'triggered' : ''} ${slot.locked ? 'locked' : ''} ${slot.isLoading ? 'loading' : ''}"
+        class="pad-card ${this.isTriggered ? 'triggered' : ''} ${slot.locked ? 'locked' : ''} ${slot.isLoading ? 'loading' : ''}"
         style="
           --role-border: ${theme.border};
           --role-glow: ${theme.glow};
           --role-badge-bg: ${theme.badgeBg};
           --role-badge-text: ${theme.badgeText};
         "
-        @click=${this.triggerPad}
+        @click=${() => this.trigger()}
       >
         <div class="pad-header">
           <div class="index-keybind">
@@ -438,7 +470,8 @@ export class SamplePad extends LitElement {
             <waveform-view
               .bins=${profile?.waveformBins || []}
               .role=${role}
-              .isPlaying=${this.isTriggered || slot.isPlaying}
+              .isPlaying=${this.isTriggered}
+              .duration=${profile?.duration || 0.4}
             ></waveform-view>
           </div>
         </div>

@@ -129,6 +129,13 @@ export class AudioEngine {
   }
 
   /**
+   * Get cached AudioBuffer if available
+   */
+  getSampleBuffer(sampleId: string): AudioBuffer | undefined {
+    return this.activeKitBuffers.get(sampleId);
+  }
+
+  /**
    * Cache audio buffer for active kit pads so audition has 0ms latency
    */
   async cachePadAudio(sampleId: string, file: File): Promise<AudioBuffer> {
@@ -169,7 +176,7 @@ export class AudioEngine {
   }
 
   /**
-   * Play sample from File or pre-cached buffer
+   * Play sample from File, pre-cached buffer, or distinct synthesized sound
    */
   async playSample(sample: SampleRecord, getFileHandle?: () => Promise<File | undefined>): Promise<void> {
     await this.ensureAudioContext();
@@ -184,17 +191,15 @@ export class AudioEngine {
           buffer = await this.cachePadAudio(sample.id, file);
         }
       } catch (err) {
-        console.warn('Could not load audio file from handle, falling back to synthetic preview:', err);
+        console.warn('Could not load audio file from handle, falling back to distinct synthetic preview:', err);
       }
     }
 
-    if (buffer) {
-      this.playBuffer(buffer);
-      return;
+    if (!buffer) {
+      buffer = this.getOrCreateSampleBuffer(sample);
     }
 
-    // If file could not be read or handle is pending permission, generate synthetic audition preview
-    this.playSyntheticRoleSample(sample.role, sample.acousticProfile.rootPitchHz || 220);
+    this.playBuffer(buffer);
   }
 
   /**
@@ -210,193 +215,491 @@ export class AudioEngine {
   }
 
   /**
-   * Synthesize acoustic sound matching the role for instant feedback and demo kits
+   * Retrieve cached AudioBuffer or synthesize one with distinct sound design
    */
-  playSyntheticRoleSample(role: string, pitch = 220): void {
+  getOrCreateSampleBuffer(sample: SampleRecord): AudioBuffer {
+    let buffer = this.activeKitBuffers.get(sample.id);
+    if (!buffer) {
+      buffer = this.createSyntheticSampleBuffer(sample);
+      this.activeKitBuffers.set(sample.id, buffer);
+    }
+    return buffer;
+  }
+
+  /**
+   * Synthesize a distinct AudioBuffer tailored to the sample's identity, acoustic profile, and role
+   */
+  createSyntheticSampleBuffer(sample: SampleRecord): AudioBuffer {
     const ctx = this.getContext();
-    const master = this.getMasterGain();
-    const now = ctx.currentTime;
+    const fileName = sample.fileName || '';
 
-    switch (role) {
-      case 'Kick/Low': {
-        // Punchy 808-style pitch drop kick
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(160, now);
-        osc.frequency.exponentialRampToValueAtTime(45, now + 0.08);
-        osc.frequency.exponentialRampToValueAtTime(25, now + 0.35);
+    let buffer: AudioBuffer;
 
-        gain.gain.setValueAtTime(1.0, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+    if (fileName.includes('808_DeepKick_Punch')) {
+      buffer = this.generate808DeepKick(ctx);
+    } else if (fileName.includes('Sub_Boom_LowC')) {
+      buffer = this.generateSubBoomKick(ctx);
+    } else if (fileName.includes('Punchy_Analog_BD')) {
+      buffer = this.generatePunchyAnalogKick(ctx);
+    } else if (fileName.includes('Crisp_Vintage_Snare')) {
+      buffer = this.generateVintageSnare(ctx);
+    } else if (fileName.includes('Tight_Rim_Snap')) {
+      buffer = this.generateTightRimSnap(ctx);
+    } else if (fileName.includes('Trap_Clap_Hit')) {
+      buffer = this.generateTrapClap(ctx);
+    } else if (fileName.includes('Crisp_Closed_HH')) {
+      buffer = this.generateCrispClosedHat(ctx);
+    } else if (fileName.includes('Sizzle_Open_Hat')) {
+      buffer = this.generateSizzleOpenHat(ctx);
+    } else if (fileName.includes('Shaker_Groove')) {
+      buffer = this.generateShakerGroove(ctx);
+    } else if (fileName.includes('Rhodes_Chords_Am')) {
+      buffer = this.generateRhodesChord(ctx);
+    } else if (fileName.includes('Analog_SubBass_D')) {
+      buffer = this.generateAnalogSubBass(ctx);
+    } else if (fileName.includes('Vocal_Chop_Melody')) {
+      buffer = this.generateVocalChop(ctx);
+    } else if (fileName.includes('Vinyl_Crackles_Atmo')) {
+      buffer = this.generateVinylCrackle(ctx);
+    } else if (fileName.includes('Foley_Click_Drop')) {
+      buffer = this.generateFoleyDrop(ctx);
+    } else if (fileName.includes('Space_Sweep_FX')) {
+      buffer = this.generateSpaceSweep(ctx);
+    } else {
+      buffer = this.generateParametricSound(ctx, sample);
+    }
 
-        osc.connect(gain);
-        gain.connect(master);
-        osc.start(now);
-        osc.stop(now + 0.4);
-        break;
+    this.extractWaveformBins(buffer, sample);
+    return buffer;
+  }
+
+  // --- 15 DEDICATED DISTINCT SOUND GENERATORS ---
+
+  private generate808DeepKick(ctx: AudioContext): AudioBuffer {
+    const sr = ctx.sampleRate;
+    const dur = 0.55;
+    const buffer = ctx.createBuffer(1, Math.floor(sr * dur), sr);
+    const data = buffer.getChannelData(0);
+
+    for (let i = 0; i < data.length; i++) {
+      const t = i / sr;
+      const click = t < 0.006 ? (Math.random() * 2 - 1) * Math.exp(-t * 800) * 0.45 : 0;
+      const freq = 30 + 135 * Math.exp(-t * 26);
+      const sine = Math.sin(2 * Math.PI * freq * t);
+      const env = Math.exp(-t * 5.2);
+      data[i] = Math.tanh((sine * env + click) * 1.3) * 0.92;
+    }
+    return buffer;
+  }
+
+  private generateSubBoomKick(ctx: AudioContext): AudioBuffer {
+    const sr = ctx.sampleRate;
+    const dur = 0.75;
+    const buffer = ctx.createBuffer(1, Math.floor(sr * dur), sr);
+    const data = buffer.getChannelData(0);
+
+    for (let i = 0; i < data.length; i++) {
+      const t = i / sr;
+      const freq = 32.7 + 45 * Math.exp(-t * 16);
+      const f0 = Math.sin(2 * Math.PI * freq * t);
+      const f1 = Math.sin(4 * Math.PI * freq * t) * 0.15;
+      const attack = Math.min(1.0, t / 0.005);
+      const decay = Math.exp(-t * 3.6);
+      data[i] = (f0 + f1) * attack * decay * 0.95;
+    }
+    return buffer;
+  }
+
+  private generatePunchyAnalogKick(ctx: AudioContext): AudioBuffer {
+    const sr = ctx.sampleRate;
+    const dur = 0.28;
+    const buffer = ctx.createBuffer(1, Math.floor(sr * dur), sr);
+    const data = buffer.getChannelData(0);
+
+    for (let i = 0; i < data.length; i++) {
+      const t = i / sr;
+      const click = t < 0.008 ? Math.sin(2 * Math.PI * 1200 * t) * Math.exp(-t * 600) * 0.35 : 0;
+      const freq = 55 + 180 * Math.exp(-t * 38);
+      const sine = Math.sin(2 * Math.PI * freq * t);
+      const decay = Math.exp(-t * 13.5);
+      data[i] = (sine * decay + click) * 0.9;
+    }
+    return buffer;
+  }
+
+  private generateVintageSnare(ctx: AudioContext): AudioBuffer {
+    const sr = ctx.sampleRate;
+    const dur = 0.26;
+    const buffer = ctx.createBuffer(1, Math.floor(sr * dur), sr);
+    const data = buffer.getChannelData(0);
+
+    for (let i = 0; i < data.length; i++) {
+      const t = i / sr;
+      const body = (Math.sin(2 * Math.PI * 185 * t) * 0.6 + Math.sin(2 * Math.PI * 275 * t) * 0.4) * Math.exp(-t * 22);
+      const noise = (Math.random() * 2 - 1) * Math.exp(-t * 13);
+      data[i] = (body * 0.38 + noise * 0.62) * 0.88;
+    }
+    return buffer;
+  }
+
+  private generateTightRimSnap(ctx: AudioContext): AudioBuffer {
+    const sr = ctx.sampleRate;
+    const dur = 0.12;
+    const buffer = ctx.createBuffer(1, Math.floor(sr * dur), sr);
+    const data = buffer.getChannelData(0);
+
+    for (let i = 0; i < data.length; i++) {
+      const t = i / sr;
+      const click = t < 0.003 ? (Math.random() * 2 - 1) * 0.6 : 0;
+      const ping = Math.sin(2 * Math.PI * 420 * t) * 0.5 + Math.sin(2 * Math.PI * 980 * t) * 0.35;
+      const decay = Math.exp(-t * 36);
+      data[i] = (ping * decay + click) * 0.85;
+    }
+    return buffer;
+  }
+
+  private generateTrapClap(ctx: AudioContext): AudioBuffer {
+    const sr = ctx.sampleRate;
+    const dur = 0.32;
+    const buffer = ctx.createBuffer(1, Math.floor(sr * dur), sr);
+    const data = buffer.getChannelData(0);
+
+    for (let i = 0; i < data.length; i++) {
+      const t = i / sr;
+      const noise = Math.random() * 2 - 1;
+      let clapEnv = 0;
+      if (t >= 0 && t < 0.012) clapEnv = Math.exp(-(t) * 160) * 0.35;
+      else if (t >= 0.012 && t < 0.024) clapEnv = Math.exp(-(t - 0.012) * 160) * 0.45;
+      else if (t >= 0.024 && t < 0.036) clapEnv = Math.exp(-(t - 0.024) * 160) * 0.55;
+      else if (t >= 0.036) clapEnv = Math.exp(-(t - 0.036) * 14) * 0.95;
+
+      data[i] = noise * clapEnv * 0.82;
+    }
+    return buffer;
+  }
+
+  private generateCrispClosedHat(ctx: AudioContext): AudioBuffer {
+    const sr = ctx.sampleRate;
+    const dur = 0.055;
+    const buffer = ctx.createBuffer(1, Math.floor(sr * dur), sr);
+    const data = buffer.getChannelData(0);
+
+    for (let i = 0; i < data.length; i++) {
+      const t = i / sr;
+      const inharmonic = (
+        Math.sin(2 * Math.PI * 340 * t) +
+        Math.sin(2 * Math.PI * 520 * t) +
+        Math.sin(2 * Math.PI * 810 * t) +
+        Math.sin(2 * Math.PI * 1150 * t)
+      ) * 0.25;
+      const noise = (Math.random() * 2 - 1) * 0.75;
+      const decay = Math.exp(-t * 68);
+      data[i] = (inharmonic + noise) * decay * 0.75;
+    }
+    return buffer;
+  }
+
+  private generateSizzleOpenHat(ctx: AudioContext): AudioBuffer {
+    const sr = ctx.sampleRate;
+    const dur = 0.50;
+    const buffer = ctx.createBuffer(1, Math.floor(sr * dur), sr);
+    const data = buffer.getChannelData(0);
+
+    for (let i = 0; i < data.length; i++) {
+      const t = i / sr;
+      const metallic = (
+        Math.sin(2 * Math.PI * 380 * t) +
+        Math.sin(2 * Math.PI * 620 * t) +
+        Math.sin(2 * Math.PI * 940 * t)
+      ) * 0.18;
+      const noise = (Math.random() * 2 - 1) * 0.82;
+      const decay = Math.exp(-t * 7.2);
+      data[i] = (metallic + noise) * decay * 0.72;
+    }
+    return buffer;
+  }
+
+  private generateShakerGroove(ctx: AudioContext): AudioBuffer {
+    const sr = ctx.sampleRate;
+    const dur = 0.22;
+    const buffer = ctx.createBuffer(1, Math.floor(sr * dur), sr);
+    const data = buffer.getChannelData(0);
+
+    for (let i = 0; i < data.length; i++) {
+      const t = i / sr;
+      const noise = Math.random() * 2 - 1;
+      let env = 0;
+      if (t < 0.06) {
+        env = Math.sin((t / 0.06) * (Math.PI / 2)) * 0.45;
+      } else {
+        env = Math.exp(-(t - 0.06) * 22) * 0.85;
+      }
+      data[i] = noise * env * 0.78;
+    }
+    return buffer;
+  }
+
+  private generateRhodesChord(ctx: AudioContext): AudioBuffer {
+    const sr = ctx.sampleRate;
+    const dur = 1.0;
+    const buffer = ctx.createBuffer(1, Math.floor(sr * dur), sr);
+    const data = buffer.getChannelData(0);
+    // Am7 chord: A3(220), C4(261.63), E4(329.63), G4(392)
+    const notes = [220.0, 261.63, 329.63, 392.0];
+
+    for (let i = 0; i < data.length; i++) {
+      const t = i / sr;
+      let chord = 0;
+      const tremolo = 1.0 + 0.15 * Math.sin(2 * Math.PI * 4.8 * t);
+
+      for (const freq of notes) {
+        const f0 = Math.sin(2 * Math.PI * freq * t);
+        const f1 = Math.sin(4 * Math.PI * freq * t) * 0.25;
+        const chime = Math.sin(8 * Math.PI * freq * t) * 0.1 * Math.exp(-t * 8);
+        chord += (f0 + f1 + chime);
+      }
+      const decay = Math.exp(-t * 2.6);
+      data[i] = (chord / notes.length) * tremolo * decay * 0.75;
+    }
+    return buffer;
+  }
+
+  private generateAnalogSubBass(ctx: AudioContext): AudioBuffer {
+    const sr = ctx.sampleRate;
+    const dur = 0.75;
+    const buffer = ctx.createBuffer(1, Math.floor(sr * dur), sr);
+    const data = buffer.getChannelData(0);
+    const f0 = 73.42; // D2
+
+    for (let i = 0; i < data.length; i++) {
+      const t = i / sr;
+      const filterEnv = Math.exp(-t * 5.0);
+      let saw = 0;
+      const harmonics = 8;
+      for (let h = 1; h <= harmonics; h++) {
+        const harmonicDamp = Math.min(1.0, (1.0 / h) * (0.3 + 0.7 * filterEnv));
+        saw += Math.sin(2 * Math.PI * f0 * h * t) * harmonicDamp;
+      }
+      const decay = Math.exp(-t * 2.8);
+      data[i] = Math.tanh(saw * 0.6) * decay * 0.85;
+    }
+    return buffer;
+  }
+
+  private generateVocalChop(ctx: AudioContext): AudioBuffer {
+    const sr = ctx.sampleRate;
+    const dur = 0.52;
+    const buffer = ctx.createBuffer(1, Math.floor(sr * dur), sr);
+    const data = buffer.getChannelData(0);
+
+    for (let i = 0; i < data.length; i++) {
+      const t = i / sr;
+      const pitch = 330 + (392 - 330) * Math.min(1.0, t / 0.12);
+      const vibrato = t > 0.15 ? Math.sin(2 * Math.PI * 5.5 * (t - 0.15)) * 4 : 0;
+      const carrier = Math.sin(2 * Math.PI * (pitch + vibrato) * t);
+
+      // Formant synthesis (vowel resonance 'ah' -> 'oh')
+      const formant1 = Math.sin(2 * Math.PI * (750 - 200 * t) * t) * 0.4;
+      const formant2 = Math.sin(2 * Math.PI * (1200 - 300 * t) * t) * 0.25;
+
+      const decay = Math.exp(-t * 3.8);
+      data[i] = (carrier * 0.55 + formant1 + formant2) * decay * 0.75;
+    }
+    return buffer;
+  }
+
+  private generateVinylCrackle(ctx: AudioContext): AudioBuffer {
+    const sr = ctx.sampleRate;
+    const dur = 1.0;
+    const buffer = ctx.createBuffer(1, Math.floor(sr * dur), sr);
+    const data = buffer.getChannelData(0);
+
+    let popInterval = Math.floor(sr * (0.04 + Math.random() * 0.12));
+    let popCounter = 0;
+    let popDecay = 0;
+
+    for (let i = 0; i < data.length; i++) {
+      const t = i / sr;
+      const hum = Math.sin(2 * Math.PI * 50 * t) * 0.05 + Math.sin(2 * Math.PI * 100 * t) * 0.025;
+      const hiss = (Math.random() * 2 - 1) * 0.04;
+
+      popCounter++;
+      if (popCounter >= popInterval) {
+        popCounter = 0;
+        popInterval = Math.floor(sr * (0.03 + Math.random() * 0.18));
+        popDecay = 0.55 + Math.random() * 0.4;
       }
 
-      case 'Snare/Snap': {
-        // Tone + noise burst
-        const osc = ctx.createOscillator();
-        const oscGain = ctx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(220, now);
-        osc.frequency.exponentialRampToValueAtTime(140, now + 0.06);
-        oscGain.gain.setValueAtTime(0.7, now);
-        oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
-        osc.connect(oscGain);
-        oscGain.connect(master);
-        osc.start(now);
-        osc.stop(now + 0.15);
+      const pop = popDecay > 0.01 ? (Math.random() * 2 - 1) * popDecay : 0;
+      popDecay *= 0.88;
 
-        // Noise buffer
-        const noiseBufferSize = Math.floor(ctx.sampleRate * 0.22);
-        const noiseBuffer = ctx.createBuffer(1, noiseBufferSize, ctx.sampleRate);
-        const output = noiseBuffer.getChannelData(0);
-        for (let i = 0; i < noiseBufferSize; i++) {
-          output[i] = Math.random() * 2 - 1;
-        }
-        const noiseSource = ctx.createBufferSource();
-        noiseSource.buffer = noiseBuffer;
+      data[i] = (hum + hiss + pop) * 0.75;
+    }
+    return buffer;
+  }
 
-        const filter = ctx.createBiquadFilter();
-        filter.type = 'highpass';
-        filter.frequency.setValueAtTime(1000, now);
+  private generateFoleyDrop(ctx: AudioContext): AudioBuffer {
+    const sr = ctx.sampleRate;
+    const dur = 0.25;
+    const buffer = ctx.createBuffer(1, Math.floor(sr * dur), sr);
+    const data = buffer.getChannelData(0);
 
-        const noiseGain = ctx.createGain();
-        noiseGain.gain.setValueAtTime(0.8, now);
-        noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
-
-        noiseSource.connect(filter);
-        filter.connect(noiseGain);
-        noiseGain.connect(master);
-        noiseSource.start(now);
-        break;
+    for (let i = 0; i < data.length; i++) {
+      const t = i / sr;
+      const click = t < 0.004 ? (Math.random() * 2 - 1) * 0.55 : 0;
+      const wood = Math.sin(2 * Math.PI * 580 * t) * Math.exp(-t * 26);
+      let bounce = 0;
+      if (t >= 0.048 && t < 0.08) {
+        bounce = Math.sin(2 * Math.PI * 720 * (t - 0.048)) * Math.exp(-(t - 0.048) * 45) * 0.4;
       }
+      data[i] = (click + wood * 0.7 + bounce) * 0.85;
+    }
+    return buffer;
+  }
 
-      case 'Hat/Air': {
-        // Metallic filtered noise burst
-        const bufferSize = Math.floor(ctx.sampleRate * 0.09);
-        const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-        const data = buffer.getChannelData(0);
-        for (let i = 0; i < bufferSize; i++) {
-          data[i] = Math.random() * 2 - 1;
-        }
-        const source = ctx.createBufferSource();
-        source.buffer = buffer;
+  private generateSpaceSweep(ctx: AudioContext): AudioBuffer {
+    const sr = ctx.sampleRate;
+    const dur = 0.85;
+    const buffer = ctx.createBuffer(1, Math.floor(sr * dur), sr);
+    const data = buffer.getChannelData(0);
 
-        const bandpass = ctx.createBiquadFilter();
-        bandpass.type = 'highpass';
-        bandpass.frequency.setValueAtTime(7000, now);
+    for (let i = 0; i < data.length; i++) {
+      const t = i / sr;
+      const sweepFreq = 280 + 3200 * (t / dur);
+      const tone = Math.sin(2 * Math.PI * sweepFreq * t);
+      const noise = (Math.random() * 2 - 1) * 0.35;
+      const env = Math.sin(Math.PI * Math.min(1.0, t / dur));
+      data[i] = (tone * 0.65 + noise) * env * 0.72;
+    }
+    return buffer;
+  }
 
-        const gain = ctx.createGain();
-        gain.gain.setValueAtTime(0.6, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+  private generateParametricSound(ctx: AudioContext, sample: SampleRecord): AudioBuffer {
+    const sr = ctx.sampleRate;
+    const profile = sample.acousticProfile;
+    const role = sample.role;
+    const dur = Math.max(0.1, Math.min(profile?.duration || 0.45, 2.0));
+    const buffer = ctx.createBuffer(1, Math.floor(sr * dur), sr);
+    const data = buffer.getChannelData(0);
 
-        source.connect(bandpass);
-        bandpass.connect(gain);
-        gain.connect(master);
-        source.start(now);
-        break;
-      }
+    // Hash the file name or ID for deterministic timbre variation
+    let hash = 0;
+    const str = sample.fileName || sample.id || 'sample';
+    for (let i = 0; i < str.length; i++) {
+      hash = ((hash << 5) - hash) + str.charCodeAt(i);
+      hash |= 0;
+    }
+    const seed = Math.abs(hash);
+    const varFactor = 0.8 + 0.4 * ((seed % 100) / 100);
 
-      case 'Tonal/Melodic': {
-        // Warm melodic pluck or rhodes tone
-        const osc1 = ctx.createOscillator();
-        const osc2 = ctx.createOscillator();
-        const gain = ctx.createGain();
-        const filter = ctx.createBiquadFilter();
+    const basePitch = profile?.rootPitchHz || (role === 'Kick/Low' ? 50 : role === 'Snare/Snap' ? 200 : role === 'Hat/Air' ? 8000 : 261.63);
+    const pitch = basePitch * varFactor;
 
-        osc1.type = 'sawtooth';
-        osc2.type = 'sine';
-        const targetFreq = pitch > 50 && pitch < 1200 ? pitch : 261.63; // Middle C default
-        osc1.frequency.setValueAtTime(targetFreq, now);
-        osc2.frequency.setValueAtTime(targetFreq * 2.01, now);
-
-        filter.type = 'lowpass';
-        filter.frequency.setValueAtTime(2400, now);
-        filter.frequency.exponentialRampToValueAtTime(400, now + 0.45);
-
-        gain.gain.setValueAtTime(0.7, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
-
-        osc1.connect(filter);
-        osc2.connect(filter);
-        filter.connect(gain);
-        gain.connect(master);
-
-        osc1.start(now);
-        osc2.start(now);
-        osc1.stop(now + 0.55);
-        osc2.stop(now + 0.55);
-        break;
-      }
-
-      case 'Texture/Wildcard':
-      default: {
-        // Ethereal sweep or textured chord
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        const filter = ctx.createBiquadFilter();
-
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(180, now);
-        osc.frequency.linearRampToValueAtTime(320, now + 0.6);
-
-        filter.type = 'bandpass';
-        filter.frequency.setValueAtTime(800, now);
-        filter.Q.value = 4;
-
-        gain.gain.setValueAtTime(0.01, now);
-        gain.gain.linearRampToValueAtTime(0.5, now + 0.15);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
-
-        osc.connect(filter);
-        filter.connect(gain);
-        gain.connect(master);
-
-        osc.start(now);
-        osc.stop(now + 0.7);
-        break;
+    for (let i = 0; i < data.length; i++) {
+      const t = i / sr;
+      if (role === 'Kick/Low') {
+        const f = (pitch * 0.8) + (pitch * 2.5) * Math.exp(-t * 24);
+        data[i] = Math.sin(2 * Math.PI * f * t) * Math.exp(-t * 6.5) * 0.9;
+      } else if (role === 'Snare/Snap') {
+        const body = Math.sin(2 * Math.PI * pitch * t) * Math.exp(-t * 20) * 0.4;
+        const noise = (Math.random() * 2 - 1) * Math.exp(-t * 14) * 0.6;
+        data[i] = (body + noise) * 0.85;
+      } else if (role === 'Hat/Air') {
+        const noise = (Math.random() * 2 - 1) * Math.exp(-t * (dur < 0.15 ? 45 : 12));
+        data[i] = noise * 0.75;
+      } else if (role === 'Tonal/Melodic') {
+        const s0 = Math.sin(2 * Math.PI * pitch * t);
+        const s1 = Math.sin(4 * Math.PI * pitch * t) * 0.3;
+        data[i] = (s0 + s1) * Math.exp(-t * 2.5) * 0.75;
+      } else {
+        const mod = Math.sin(2 * Math.PI * (pitch * 0.5) * t);
+        const carrier = Math.sin(2 * Math.PI * (pitch + mod * 50) * t);
+        data[i] = carrier * Math.sin(Math.PI * (t / dur)) * 0.7;
       }
     }
+
+    return buffer;
+  }
+
+  private extractWaveformBins(buffer: AudioBuffer, sample: SampleRecord): void {
+    if (!sample.acousticProfile) return;
+    const data = buffer.getChannelData(0);
+    const step = Math.floor(data.length / 64);
+    if (step <= 0) return;
+
+    const bins: number[] = [];
+    for (let b = 0; b < 64; b++) {
+      let max = 0;
+      const start = b * step;
+      const end = Math.min(start + step, data.length);
+      for (let j = start; j < end; j++) {
+        const val = Math.abs(data[j]);
+        if (val > max) max = val;
+      }
+      bins.push(+max.toFixed(2));
+    }
+    sample.acousticProfile.waveformBins = bins;
+  }
+
+  /**
+   * Synthesize acoustic sound matching the role for instant feedback
+   */
+  playSyntheticRoleSample(role: string, pitch = 220): void {
+    const dummySample: SampleRecord = {
+      id: `synthetic_${role}_${pitch}`,
+      folderId: 'demo_factory',
+      folderName: 'Factory Demo',
+      fileName: role,
+      relativePath: role,
+      fileSize: 44100,
+      lastModified: Date.now(),
+      role: role as any,
+      acousticProfile: {
+        duration: role === 'Hat/Air' ? 0.15 : role === 'Tonal/Melodic' ? 0.8 : 0.45,
+        transientSharpness: 70,
+        attackRiseMs: 5.0,
+        crestFactorDb: 18.0,
+        energyBalance: { low: 0.3, mid: 0.4, high: 0.3 },
+        rootPitchHz: pitch,
+        pitchConfidence: 0.8,
+        isMelodic: role === 'Tonal/Melodic',
+        waveformBins: []
+      },
+      tags: ['synthetic']
+    };
+    const buffer = this.createSyntheticSampleBuffer(dummySample);
+    this.playBuffer(buffer);
   }
 
   /**
    * Synthesize an AudioBuffer for demo/test samples
    */
   createSyntheticAudioBuffer(role: string, pitch = 220): AudioBuffer {
-    const ctx = this.getContext();
-    const lengthSec = role === 'Hat/Air' ? 0.15 : role === 'Tonal/Melodic' ? 0.8 : 0.45;
-    const buffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate * lengthSec), ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-
-    for (let i = 0; i < data.length; i++) {
-      const t = i / ctx.sampleRate;
-      if (role === 'Kick/Low') {
-        const freq = 140 * Math.exp(-t * 22) + 40;
-        const env = Math.exp(-t * 8);
-        data[i] = Math.sin(2 * Math.PI * freq * t) * env;
-      } else if (role === 'Snare/Snap') {
-        const tone = Math.sin(2 * Math.PI * 180 * t) * Math.exp(-t * 20);
-        const noise = (Math.random() * 2 - 1) * Math.exp(-t * 12);
-        data[i] = (tone * 0.4 + noise * 0.6);
-      } else if (role === 'Hat/Air') {
-        const noise = (Math.random() * 2 - 1) * Math.exp(-t * 35);
-        data[i] = noise * 0.8;
-      } else if (role === 'Tonal/Melodic') {
-        const env = Math.exp(-t * 4);
-        data[i] = (Math.sin(2 * Math.PI * pitch * t) + 0.3 * Math.sin(2 * Math.PI * pitch * 2 * t)) * env * 0.6;
-      } else {
-        const env = Math.sin(Math.PI * (t / lengthSec));
-        data[i] = Math.sin(2 * Math.PI * (200 + 150 * t) * t) * env * 0.5;
-      }
-    }
-
-    return buffer;
+    const dummySample: SampleRecord = {
+      id: `synthetic_${role}_${pitch}`,
+      folderId: 'demo_factory',
+      folderName: 'Factory Demo',
+      fileName: role,
+      relativePath: role,
+      fileSize: 44100,
+      lastModified: Date.now(),
+      role: role as any,
+      acousticProfile: {
+        duration: role === 'Hat/Air' ? 0.15 : role === 'Tonal/Melodic' ? 0.8 : 0.45,
+        transientSharpness: 70,
+        attackRiseMs: 5.0,
+        crestFactorDb: 18.0,
+        energyBalance: { low: 0.3, mid: 0.4, high: 0.3 },
+        rootPitchHz: pitch,
+        pitchConfidence: 0.8,
+        isMelodic: role === 'Tonal/Melodic',
+        waveformBins: []
+      },
+      tags: ['synthetic']
+    };
+    return this.createSyntheticSampleBuffer(dummySample);
   }
 }
 
 export const audioEngine = new AudioEngine();
+
