@@ -1,6 +1,6 @@
-import type { AcousticCriteria, KitPreset, SampleRole } from '../types/index.ts';
+import type { AcousticCriteria, KitPreset, PadCount, SampleRole } from '../types/index.ts';
 
-export const FACTORY_ROLE_TEMPLATES: Record<4 | 6 | 8, SampleRole[]> = {
+export const FACTORY_ROLE_TEMPLATES: Record<PadCount, SampleRole[]> = {
   4: ['Kick/Low', 'Snare/Snap', 'Hat/Air', 'Tonal/Melodic'],
   6: ['Kick/Low', 'Snare/Snap', 'Hat/Air', 'Snare/Snap', 'Tonal/Melodic', 'Texture/Wildcard'],
   8: [
@@ -12,6 +12,12 @@ export const FACTORY_ROLE_TEMPLATES: Record<4 | 6 | 8, SampleRole[]> = {
     'Tonal/Melodic',
     'Texture/Wildcard',
     'Texture/Wildcard'
+  ],
+  16: [
+    'Kick/Low', 'Snare/Snap', 'Hat/Air', 'Tonal/Melodic',
+    'Hat/Air', 'Snare/Snap', 'Tonal/Melodic', 'Texture/Wildcard',
+    'Kick/Low', 'Snare/Snap', 'Hat/Air', 'Tonal/Melodic',
+    'Hat/Air', 'Texture/Wildcard', 'Snare/Snap', 'Texture/Wildcard'
   ]
 };
 

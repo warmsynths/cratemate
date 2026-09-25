@@ -94,6 +94,16 @@ export class ScannerService {
   }
 
   /**
+   * Request user permission to re-activate a stored folder handle
+   */
+  async reconnectFolder(folderId: string): Promise<boolean> {
+    const folders = await storage.getFolderSources();
+    const folder = folders.find(f => f.id === folderId);
+    if (!folder) return false;
+    return await this.verifyFolderPermission(folder, true);
+  }
+
+  /**
    * Scan a folder source recursively
    */
   async scanFolder(folder: FolderSource): Promise<void> {
@@ -249,7 +259,30 @@ export class ScannerService {
     if (!handle) return undefined;
 
     try {
-      const parts = sample.relativePath.split('/');
+      if ('queryPermission' in handle) {
+        let perm = await (handle as any).queryPermission({ mode: 'read' });
+        if (perm !== 'granted') {
+          try {
+            perm = await (handle as any).requestPermission({ mode: 'read' });
+          } catch (_) {
+            // requestPermission may fail if called outside a user gesture (e.g. startup preload)
+          }
+        }
+        if (perm !== 'granted') {
+          return undefined;
+        }
+
+        // Keep folder source permission status synchronized
+        storage.getFolderSources().then(async folders => {
+          const f = folders.find(item => item.id === sample.folderId);
+          if (f && !f.permissionGranted) {
+            f.permissionGranted = true;
+            await storage.saveFolderSource(f);
+          }
+        }).catch(() => {});
+      }
+
+      const parts = sample.relativePath.split(/[\\/]/).filter(Boolean);
       let currentDir = handle;
 
       for (let i = 0; i < parts.length - 1; i++) {

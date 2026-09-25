@@ -73,15 +73,17 @@ export interface RoleAcousticTarget {
   negativeKeywords?: string[]; // negative keywords (e.g. ['acoustic', 'vintage'])
 }
 
+export type PadCount = 4 | 6 | 8 | 16;
+
 export interface AcousticCriteria {
-  durationMin?: number; // fallback min duration in seconds
-  durationMax?: number; // fallback max duration in seconds
-  sharpnessTarget?: 'any' | 'punchy' | 'moderate' | 'soft';
+  durationMin?: number; // global duration filter
+  durationMax?: number;
+  sharpnessTarget?: 'any' | 'soft' | 'moderate' | 'punchy' | 'ultra-sharp';
   frequencyBias?: 'any' | 'warm-sub' | 'mid-focused' | 'bright-air';
   folderIds?: string[]; // if set, only select samples from these folder IDs
   keyLockMode?: 'auto' | 'strict' | 'any';
   lockedCamelotKey?: string; // e.g. "8A"
-  roleTemplates?: Partial<Record<4 | 6 | 8, SampleRole[]>>;
+  roleTemplates?: Partial<Record<PadCount, SampleRole[]>>;
   roleProfiles?: Partial<Record<SampleRole, RoleAcousticTarget>>;
   macroPunch?: number; // 0-100 (scales transient targets)
   macroLength?: number; // 0-100 (scales duration targets)
@@ -104,7 +106,7 @@ export interface KitPreset {
 export interface Kit {
   id: string;
   name: string;
-  padCount: 4 | 6 | 8;
+  padCount: PadCount;
   pads: PadSlot[];
   dominantKey?: string; // harmonic key if tonal samples exist
   dominantCamelot?: string;
@@ -126,7 +128,7 @@ export interface ScanProgress {
   error?: string;
 }
 
-export type HardwareTarget = 'm8' | 'sp404mk2' | 'dual';
+export type HardwareTarget = 'm8' | 'sp404mk2' | 'universal' | 'dual';
 
 export interface HardwareExportOptions {
   target: HardwareTarget;

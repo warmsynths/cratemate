@@ -19,8 +19,8 @@ export class HardwarePackagerService {
    * Helper to decode a SampleRecord into an AudioBuffer using AudioEngine
    */
   async getAudioBufferForSample(sample: SampleRecord): Promise<AudioBuffer | null> {
-    // 1. Check if audioEngine already has it cached
-    const cached = audioEngine.getSampleBuffer(sample.id);
+    // 1. Check if audioEngine already has the real decoded PCM audio cached
+    const cached = audioEngine.getRealSampleBuffer(sample.id);
     if (cached) return cached;
 
     // 2. Try loading from local file handle

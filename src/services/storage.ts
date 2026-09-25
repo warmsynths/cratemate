@@ -26,6 +26,21 @@ export class StorageService {
   }
 
   /**
+   * Alias for getFolderSources
+   */
+  async getFolders(): Promise<FolderSource[]> {
+    return this.getFolderSources();
+  }
+
+  /**
+   * Fast total count of indexed samples
+   */
+  async getSampleCount(): Promise<number> {
+    const allKeys = await keys();
+    return allKeys.filter(k => typeof k === 'string' && k.startsWith(SAMPLES_PREFIX)).length;
+  }
+
+  /**
    * Save or update folder sources list
    */
   async saveFolderSource(folder: FolderSource): Promise<void> {

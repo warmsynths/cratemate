@@ -1,9 +1,79 @@
 import { storage } from './storage.ts';
 import { FACTORY_ROLE_TEMPLATES, FACTORY_PRESETS, DEFAULT_PRESET_ID, mergeCriteria } from './presets.ts';
-import type { AcousticCriteria, Kit, PadSlot, SampleRecord, SampleRole } from '../types/index.ts';
+import type { AcousticCriteria, Kit, PadCount, PadSlot, SampleRecord, SampleRole } from '../types/index.ts';
 
-const QWERTY_KEYS_8 = ['Q', 'W', 'E', 'R', 'A', 'S', 'D', 'F'];
-const NUMBER_KEYS_8 = ['1', '2', '3', '4', '5', '6', '7', '8'];
+const QWERTY_KEYS_16 = ['1', '2', '3', '4', 'Q', 'W', 'E', 'R', 'A', 'S', 'D', 'F', 'Z', 'X', 'C', 'V'];
+const NUMBER_KEYS_16 = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', 'A', 'B', 'C', 'D'];
+
+export interface FactoryDemoSound {
+  fileName: string;
+  role: SampleRole;
+  duration: number;
+  pitchHz?: number;
+  note?: string;
+  camelot?: string;
+  sharpness: number;
+}
+
+export const FACTORY_DEMO_LIBRARY: FactoryDemoSound[] = [
+  // Kick/Low (9 distinct acoustic profiles)
+  { fileName: 'Dusty Kick 04.wav', role: 'Kick/Low', duration: 0.42, pitchHz: 52, note: 'G#1', sharpness: 78 },
+  { fileName: 'Tape Kick 07.wav', role: 'Kick/Low', duration: 0.51, pitchHz: 46, note: 'F#1', sharpness: 74 },
+  { fileName: 'Room Kick 11.wav', role: 'Kick/Low', duration: 0.62, pitchHz: 58, note: 'A#1', sharpness: 80 },
+  { fileName: 'Sub Boom A.wav', role: 'Kick/Low', duration: 1.15, pitchHz: 38, note: 'D#1', sharpness: 68 },
+  { fileName: 'Thud Kick 02.wav', role: 'Kick/Low', duration: 0.38, pitchHz: 61, note: 'B1', sharpness: 84 },
+  { fileName: 'Felt Kick 09.wav', role: 'Kick/Low', duration: 0.47, pitchHz: 55, note: 'A1', sharpness: 72 },
+  { fileName: '808 Deep Punch.wav', role: 'Kick/Low', duration: 0.65, pitchHz: 42, note: 'E1', sharpness: 88 },
+  { fileName: 'Clean Club BD.wav', role: 'Kick/Low', duration: 0.35, pitchHz: 56, note: 'A#1', sharpness: 82 },
+  { fileName: 'Raw 909 Kick.wav', role: 'Kick/Low', duration: 0.40, pitchHz: 60, note: 'B1', sharpness: 86 },
+
+  // Snare/Snap (9 distinct acoustic profiles)
+  { fileName: 'Vinyl Snare 12.wav', role: 'Snare/Snap', duration: 0.22, pitchHz: 190, note: 'F#3', sharpness: 88 },
+  { fileName: 'Snare Dust 09.wav', role: 'Snare/Snap', duration: 0.25, pitchHz: 168, note: 'E3', sharpness: 82 },
+  { fileName: 'Rim Snap W.wav', role: 'Snare/Snap', duration: 0.14, pitchHz: 320, note: 'E4', sharpness: 94 },
+  { fileName: 'Brush Snare A.wav', role: 'Snare/Snap', duration: 0.28, pitchHz: 210, note: 'G#3', sharpness: 76 },
+  { fileName: 'Clap Stack B.wav', role: 'Snare/Snap', duration: 0.24, pitchHz: 240, note: 'B3', sharpness: 90 },
+  { fileName: 'Cross Stick 3.wav', role: 'Snare/Snap', duration: 0.12, pitchHz: 380, note: 'F#4', sharpness: 95 },
+  { fileName: 'Crisp 90s Snare.wav', role: 'Snare/Snap', duration: 0.26, pitchHz: 185, note: 'F#3', sharpness: 89 },
+  { fileName: 'Layered Rim Clap.wav', role: 'Snare/Snap', duration: 0.21, pitchHz: 260, note: 'C4', sharpness: 92 },
+  { fileName: 'Ghost Snare 04.wav', role: 'Snare/Snap', duration: 0.19, pitchHz: 195, note: 'G3', sharpness: 80 },
+
+  // Hat/Air (9 distinct acoustic profiles)
+  { fileName: 'Closed Hat A.wav', role: 'Hat/Air', duration: 0.08, pitchHz: 9000, sharpness: 94 },
+  { fileName: 'Open Hat 03.wav', role: 'Hat/Air', duration: 0.38, pitchHz: 7600, sharpness: 88 },
+  { fileName: 'Shaker Loop 2.wav', role: 'Hat/Air', duration: 0.45, pitchHz: 6200, sharpness: 80 },
+  { fileName: 'Tamb Hit 02.wav', role: 'Hat/Air', duration: 0.20, pitchHz: 8200, sharpness: 92 },
+  { fileName: 'Pedal Hat 06.wav', role: 'Hat/Air', duration: 0.13, pitchHz: 7000, sharpness: 86 },
+  { fileName: 'Ride Tip A.wav', role: 'Hat/Air', duration: 0.65, pitchHz: 5400, sharpness: 78 },
+  { fileName: 'Sizzle HiHat.wav', role: 'Hat/Air', duration: 0.28, pitchHz: 8400, sharpness: 91 },
+  { fileName: 'Half Open HH.wav', role: 'Hat/Air', duration: 0.22, pitchHz: 8000, sharpness: 89 },
+  { fileName: 'Organic Shaker Loop.wav', role: 'Hat/Air', duration: 0.32, pitchHz: 6500, sharpness: 82 },
+
+  // Tonal/Melodic (11 distinct acoustic profiles & Camelot wheel spread)
+  { fileName: 'Rhodes Am 90.wav', role: 'Tonal/Melodic', duration: 1.4, pitchHz: 220, note: 'A3', camelot: '8A', sharpness: 45 },
+  { fileName: 'Upright Bass C2.wav', role: 'Tonal/Melodic', duration: 1.1, pitchHz: 65, note: 'C2', camelot: '5A', sharpness: 60 },
+  { fileName: 'Moog Sub C.wav', role: 'Tonal/Melodic', duration: 1.2, pitchHz: 49, note: 'G1', camelot: '6A', sharpness: 70 },
+  { fileName: 'Wurli Stab.wav', role: 'Tonal/Melodic', duration: 1.0, pitchHz: 293, note: 'D4', camelot: '10A', sharpness: 55 },
+  { fileName: 'Clav Chop 7.wav', role: 'Tonal/Melodic', duration: 0.65, pitchHz: 330, note: 'E4', camelot: '9A', sharpness: 68 },
+  { fileName: 'Flute Loop C.wav', role: 'Tonal/Melodic', duration: 1.2, pitchHz: 392, note: 'G4', camelot: '9B', sharpness: 40 },
+  { fileName: 'Vocal Chop A4.wav', role: 'Tonal/Melodic', duration: 0.55, pitchHz: 440, note: 'A4', camelot: '8A', sharpness: 50 },
+  { fileName: 'Tape EPiano Dm.wav', role: 'Tonal/Melodic', duration: 1.3, pitchHz: 293, note: 'D4', camelot: '7A', sharpness: 48 },
+  { fileName: 'Bell Chime C.wav', role: 'Tonal/Melodic', duration: 1.0, pitchHz: 523, note: 'C5', camelot: '8B', sharpness: 65 },
+  { fileName: 'Soul Organ Hit.wav', role: 'Tonal/Melodic', duration: 1.1, pitchHz: 261, note: 'C4', camelot: '5A', sharpness: 52 },
+  { fileName: 'FM Pluck Bell.wav', role: 'Tonal/Melodic', duration: 0.9, pitchHz: 392, note: 'G4', camelot: '6A', sharpness: 72 },
+
+  // Texture/Wildcard (10 distinct acoustic profiles)
+  { fileName: 'Vinyl Crackle.wav', role: 'Texture/Wildcard', duration: 1.5, pitchHz: 2400, sharpness: 30 },
+  { fileName: 'Hiss Bed.wav', role: 'Texture/Wildcard', duration: 1.8, pitchHz: 3600, sharpness: 25 },
+  { fileName: 'Room Foley A.wav', role: 'Texture/Wildcard', duration: 0.8, pitchHz: 1500, sharpness: 65 },
+  { fileName: 'Tape Stop Hiss.wav', role: 'Texture/Wildcard', duration: 1.1, pitchHz: 2800, sharpness: 40 },
+  { fileName: 'Dust Loop 4.wav', role: 'Texture/Wildcard', duration: 1.4, pitchHz: 1900, sharpness: 35 },
+  { fileName: 'Foley Click Drop.wav', role: 'Texture/Wildcard', duration: 0.35, pitchHz: 1200, sharpness: 85 },
+  { fileName: 'Space Sweep FX.wav', role: 'Texture/Wildcard', duration: 0.95, pitchHz: 850, sharpness: 55 },
+  { fileName: 'Rain Ambience.wav', role: 'Texture/Wildcard', duration: 1.6, pitchHz: 2200, sharpness: 28 },
+  { fileName: 'Cassette Click.wav', role: 'Texture/Wildcard', duration: 0.28, pitchHz: 1400, sharpness: 88 },
+  { fileName: 'Glitch Zap.wav', role: 'Texture/Wildcard', duration: 0.45, pitchHz: 950, sharpness: 75 }
+];
 
 /**
  * Get harmonically compatible Camelot keys
@@ -26,6 +96,43 @@ export function getCompatibleCamelotKeys(camelotKey: string): string[] {
     `${nextNum}${letter}`,        // 1 step clockwise (fifth)
     `${num}${oppositeLetter}`     // relative major/minor
   ];
+}
+
+/**
+ * Universal de-duplication helper to check if a sample or file has already been assigned to another pad
+ */
+export function isSamplePicked(
+  s: { id?: string; fileName?: string },
+  alreadyPicked: Set<string>,
+  avoidFileName?: string
+): boolean {
+  if (avoidFileName && s.fileName && s.fileName.toLowerCase() === avoidFileName.toLowerCase()) {
+    return true;
+  }
+  if (s.id && alreadyPicked.has(s.id)) return true;
+  if (s.fileName && alreadyPicked.has(s.fileName)) return true;
+  if (s.fileName) {
+    const clean = s.fileName.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+    for (const picked of alreadyPicked) {
+      const pickedLower = picked.toLowerCase();
+      if (pickedLower === clean || pickedLower.includes(clean)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Register a chosen sample in the de-duplication tracker
+ */
+export function markSamplePicked(
+  s: { id?: string; fileName?: string },
+  alreadyPicked: Set<string>
+): void {
+  if (s.id) alreadyPicked.add(s.id);
+  if (s.fileName) {
+    alreadyPicked.add(s.fileName);
+    alreadyPicked.add(s.fileName.replace(/[^a-zA-Z0-9]/g, '_'));
+  }
 }
 
 /**
@@ -80,111 +187,75 @@ export function scoreCandidate(
   }
 
   // 3. Frequency Energy Balance & Preferred Band
-  const prefBand = roleProfile?.preferredBand;
+  const preferredBand = roleProfile?.preferredBand;
   const minBandEnergy = roleProfile?.minBandEnergy;
-
-  if (prefBand === 'low') {
-    if (minBandEnergy !== undefined && profile.energyBalance.low < minBandEnergy) {
-      score -= (minBandEnergy - profile.energyBalance.low) * 60;
-    } else {
-      score += profile.energyBalance.low * 40;
+  if (preferredBand && profile.energyBalance) {
+    const energy = profile.energyBalance[preferredBand];
+    if (minBandEnergy !== undefined && energy < minBandEnergy) {
+      score -= (minBandEnergy - energy) * 50;
     }
-  } else if (prefBand === 'mid') {
-    if (minBandEnergy !== undefined && profile.energyBalance.mid < minBandEnergy) {
-      score -= (minBandEnergy - profile.energyBalance.mid) * 60;
-    } else {
-      score += profile.energyBalance.mid * 40;
-    }
-  } else if (prefBand === 'high') {
-    if (minBandEnergy !== undefined && profile.energyBalance.high < minBandEnergy) {
-      score -= (minBandEnergy - profile.energyBalance.high) * 60;
-    } else {
-      score += profile.energyBalance.high * 40;
-    }
+    score += energy * 25;
   }
 
-  // Global macroTone bias
-  if (criteria.macroTone === 'warm' || criteria.frequencyBias === 'warm-sub') {
-    score += profile.energyBalance.low * 20 - profile.energyBalance.high * 10;
-  } else if (criteria.macroTone === 'bright' || criteria.frequencyBias === 'bright-air') {
-    score += profile.energyBalance.high * 20 - profile.energyBalance.low * 10;
+  // Frequency bias macro
+  if (criteria.frequencyBias === 'warm-sub' && profile.energyBalance) {
+    score += (profile.energyBalance.low - profile.energyBalance.high) * 20;
+  } else if (criteria.frequencyBias === 'bright-air' && profile.energyBalance) {
+    score += (profile.energyBalance.high - profile.energyBalance.low) * 20;
+  } else if (criteria.frequencyBias === 'mid-focused' && profile.energyBalance) {
+    score += profile.energyBalance.mid * 20;
   }
 
-  // 4. Semantic Keyword Affinity
-  const affinityWeight = (criteria.genreAffinityStrength ?? 70) / 100;
-  const sampleTokens = new Set<string>();
-
-  // Collect from tags
-  for (const t of sample.tags) {
-    if (t.startsWith('tag:')) {
-      sampleTokens.add(t.substring(4));
-    } else {
-      sampleTokens.add(t.toLowerCase());
+  // 4. Genre Keywords & Negative Keywords
+  const fullPathLower = `${sample.relativePath}/${sample.fileName}`.toLowerCase();
+  if (criteria.genreKeywords && criteria.genreKeywords.length > 0) {
+    const strength = (criteria.genreAffinityStrength ?? 50) / 50;
+    let matchCount = 0;
+    for (const kw of criteria.genreKeywords) {
+      if (fullPathLower.includes(kw.toLowerCase())) {
+        matchCount++;
+      }
     }
-  }
-  // Collect from filename & relativePath
-  const pathTokens = `${sample.relativePath} ${sample.fileName}`.toLowerCase().split(/[\/\\_\-\s\.\(\)\[\]0-9]+/);
-  for (const pt of pathTokens) {
-    if (pt.length >= 2) sampleTokens.add(pt);
+    score += matchCount * 12 * strength;
   }
 
-  // Check role-specific keywords
-  if (roleProfile?.keywords) {
+  if (roleProfile?.keywords && roleProfile.keywords.length > 0) {
+    let roleMatch = 0;
     for (const kw of roleProfile.keywords) {
-      if (sampleTokens.has(kw.toLowerCase())) {
-        score += 30 * affinityWeight;
-        break;
+      if (fullPathLower.includes(kw.toLowerCase())) {
+        roleMatch++;
+      }
+    }
+    score += roleMatch * 10;
+  }
+
+  if (roleProfile?.negativeKeywords && roleProfile.negativeKeywords.length > 0) {
+    for (const neg of roleProfile.negativeKeywords) {
+      if (fullPathLower.includes(neg.toLowerCase())) {
+        score -= 40;
       }
     }
   }
 
-  // Check role-specific negative keywords
-  if (roleProfile?.negativeKeywords) {
-    for (const nkw of roleProfile.negativeKeywords) {
-      if (sampleTokens.has(nkw.toLowerCase())) {
-        score -= 45 * affinityWeight;
-        break;
-      }
-    }
-  }
-
-  // Check global genre keywords
-  if (criteria.genreKeywords) {
-    for (const gkw of criteria.genreKeywords) {
-      if (sampleTokens.has(gkw.toLowerCase())) {
-        score += 20 * affinityWeight;
-        break;
-      }
-    }
-  }
-
-  // 5. Dynamic Kit Context: Sub-Bass Anti-Masking
+  // 5. Dynamic Kit Context: Anti-Masking
   if (criteria.antiMaskingEnabled !== false && contextPads.length > 0) {
-    if (targetRole === 'Tonal/Melodic') {
-      const heavySubKick = contextPads.find(p => 
+    if (targetRole === 'Kick/Low') {
+      const longKick = contextPads.find(p => 
         p.role === 'Kick/Low' && 
         p.sample && 
-        p.sample.acousticProfile.energyBalance.low > 0.45 &&
-        p.sample.acousticProfile.duration > 0.3
+        p.sample.acousticProfile.duration > 0.45
       );
-      if (heavySubKick) {
-        if (profile.energyBalance.low > 0.45) {
-          score -= 40; // avoid competing sub bass clash
-        }
-        if (profile.energyBalance.mid > 0.35 || profile.energyBalance.high > 0.25) {
-          score += 25; // boost chords, keys, leads
-        }
+      if (longKick && profile.duration > 0.45) {
+        score -= 25;
       }
-    }
-
-    if (targetRole === 'Hat/Air') {
+    } else if (targetRole === 'Hat/Air') {
       const brightSnare = contextPads.find(p => 
         p.role === 'Snare/Snap' && 
         p.sample && 
         p.sample.acousticProfile.energyBalance.high > 0.38
       );
       if (brightSnare && profile.energyBalance.high > 0.55 && profile.duration > 0.3) {
-        score -= 15; // avoid excessive wash
+        score -= 15;
       }
     }
   }
@@ -229,11 +300,11 @@ export function scoreCandidate(
 
 export class KitGeneratorService {
   /**
-   * Create or reroll a kit with given pad count (4, 6, or 8)
-   * Uses role-specific acoustic targets, semantic genre matching, and progressive relaxation fallbacks.
+   * Create or reroll a kit with given pad count (4, 6, 8, or 16)
+   * Uses role-specific acoustic targets, progressive relaxation fallbacks, and strict de-duplication.
    */
   async generateKit(
-    padCount: 4 | 6 | 8 = 8,
+    padCount: PadCount = 8,
     existingKit?: Kit,
     rerollAll = false,
     presetId = DEFAULT_PRESET_ID,
@@ -268,7 +339,7 @@ export class KitGeneratorService {
 
     // First pass: collect locked pads to preserve their samples and keys
     for (let i = 0; i < padCount; i++) {
-      const keybind = `${QWERTY_KEYS_8[i]} / ${NUMBER_KEYS_8[i]}`;
+      const keybind = `${QWERTY_KEYS_16[i] || (i + 1)} / ${NUMBER_KEYS_16[i] || (i + 1)}`;
       if (existingKit && !rerollAll && existingKit.pads[i] && existingKit.pads[i].locked && existingKit.pads[i].sample) {
         const lockedSlot = {
           ...existingKit.pads[i],
@@ -278,7 +349,7 @@ export class KitGeneratorService {
         };
         pads.push(lockedSlot);
         if (lockedSlot.sample) {
-          alreadyPickedIds.add(lockedSlot.sample.id);
+          markSamplePicked(lockedSlot.sample, alreadyPickedIds);
         }
       }
     }
@@ -294,7 +365,7 @@ export class KitGeneratorService {
         targetRole = existingKit.pads[i].role;
       }
 
-      const keybind = `${QWERTY_KEYS_8[i]} / ${NUMBER_KEYS_8[i]}`;
+      const keybind = `${QWERTY_KEYS_16[i] || (i + 1)} / ${NUMBER_KEYS_16[i] || (i + 1)}`;
 
       const { sample: selectedSample, notice } = this.selectSampleWithFallback(
         allSamples,
@@ -311,7 +382,7 @@ export class KitGeneratorService {
       }
 
       if (selectedSample) {
-        alreadyPickedIds.add(selectedSample.id);
+        markSamplePicked(selectedSample, alreadyPickedIds);
         if (!dominantCamelotKey && criteria.keyLockMode !== 'any' && selectedSample.acousticProfile.camelotKey) {
           dominantCamelotKey = selectedSample.acousticProfile.camelotKey;
         }
@@ -356,14 +427,17 @@ export class KitGeneratorService {
     const targetSlot = currentKit.pads[padIndex];
     if (!targetSlot) return currentKit;
 
-    const alreadyPickedIds = new Set(
-      currentKit.pads
-        .filter((_, idx) => idx !== padIndex)
-        .map(p => p.sample?.id)
-        .filter((id): id is string => !!id)
-    );
+    const alreadyPickedIds = new Set<string>();
+    currentKit.pads
+      .filter((_, idx) => idx !== padIndex)
+      .forEach(p => {
+        if (p.sample) {
+          markSamplePicked(p.sample, alreadyPickedIds);
+        }
+      });
 
     const otherPads = currentKit.pads.filter((_, idx) => idx !== padIndex);
+    const avoidFileName = targetSlot.sample?.fileName;
 
     const { sample: newSample, notice } = this.selectSampleWithFallback(
       allSamples,
@@ -372,7 +446,8 @@ export class KitGeneratorService {
       currentKit.dominantCamelot,
       alreadyPickedIds,
       padIndex,
-      otherPads
+      otherPads,
+      avoidFileName
     );
 
     const updatedPads = currentKit.pads.map((p, idx) => {
@@ -407,14 +482,17 @@ export class KitGeneratorService {
     const allSamples = await storage.getAllSamples();
     const effectiveCriteria = criteria || currentKit.criteria || FACTORY_PRESETS[0].criteria;
 
-    const alreadyPickedIds = new Set(
-      currentKit.pads
-        .filter((_, idx) => idx !== padIndex)
-        .map(p => p.sample?.id)
-        .filter((id): id is string => !!id)
-    );
+    const alreadyPickedIds = new Set<string>();
+    currentKit.pads
+      .filter((_, idx) => idx !== padIndex)
+      .forEach(p => {
+        if (p.sample) {
+          markSamplePicked(p.sample, alreadyPickedIds);
+        }
+      });
 
     const otherPads = currentKit.pads.filter((_, idx) => idx !== padIndex);
+    const avoidFileName = currentKit.pads[padIndex]?.sample?.fileName;
 
     const { sample: newSample, notice } = this.selectSampleWithFallback(
       allSamples,
@@ -423,7 +501,8 @@ export class KitGeneratorService {
       currentKit.dominantCamelot,
       alreadyPickedIds,
       padIndex,
-      otherPads
+      otherPads,
+      avoidFileName
     );
 
     const updatedPads = currentKit.pads.map((p, idx) => {
@@ -453,7 +532,7 @@ export class KitGeneratorService {
   }
 
   /**
-   * Multi-tiered selection engine with progressive relaxation
+   * Multi-tiered selection engine with progressive relaxation and strict de-duplication
    */
   private selectSampleWithFallback(
     allSamples: SampleRecord[],
@@ -462,7 +541,8 @@ export class KitGeneratorService {
     dominantCamelotKey?: string,
     alreadyPickedIds = new Set<string>(),
     padIndex = 0,
-    contextPads: PadSlot[] = []
+    contextPads: PadSlot[] = [],
+    avoidFileName?: string
   ): { sample: SampleRecord; notice?: string } {
     const folderFilter = criteria.folderIds && criteria.folderIds.length > 0 ? new Set(criteria.folderIds) : null;
     const effectiveKey = criteria.keyLockMode === 'strict' && criteria.lockedCamelotKey 
@@ -471,6 +551,7 @@ export class KitGeneratorService {
 
     const roleProfile = criteria.roleProfiles?.[targetRole];
     const roleSamples = allSamples.filter(s => s.role === targetRole);
+    const isAvail = (s: SampleRecord) => !isSamplePicked(s, alreadyPickedIds, avoidFileName);
 
     // --- TIER 1: Exact Match (Folder + Role + Key + Role-Specific Acoustic Bounds) ---
     let tier1Candidates = roleSamples;
@@ -493,9 +574,10 @@ export class KitGeneratorService {
       });
     }
 
-    if (tier1Candidates.length > 0) {
+    const tier1Available = tier1Candidates.filter(isAvail);
+    if (tier1Available.length > 0) {
       return {
-        sample: this.pickBestCandidate(tier1Candidates, targetRole, criteria, effectiveKey, alreadyPickedIds, contextPads)
+        sample: this.pickBestCandidate(tier1Available, targetRole, criteria, effectiveKey, alreadyPickedIds, contextPads)
       };
     }
 
@@ -509,9 +591,10 @@ export class KitGeneratorService {
       tier2Candidates = tier2Candidates.filter(s => s.acousticProfile.camelotKey && compatible.includes(s.acousticProfile.camelotKey));
     }
 
-    if (tier2Candidates.length > 0) {
+    const tier2Available = tier2Candidates.filter(isAvail);
+    if (tier2Available.length > 0) {
       return {
-        sample: this.pickBestCandidate(tier2Candidates, targetRole, criteria, effectiveKey, alreadyPickedIds, contextPads)
+        sample: this.pickBestCandidate(tier2Available, targetRole, criteria, effectiveKey, alreadyPickedIds, contextPads)
       };
     }
 
@@ -522,34 +605,40 @@ export class KitGeneratorService {
       tier3Candidates = tier3Candidates.filter(s => s.acousticProfile.camelotKey && compatible.includes(s.acousticProfile.camelotKey));
     }
 
-    if (tier3Candidates.length > 0) {
+    const tier3Available = tier3Candidates.filter(isAvail);
+    if (tier3Available.length > 0) {
       const notice = folderFilter ? `Pad ${padIndex + 1} (${targetRole}): pulled from other folders` : undefined;
       return {
-        sample: this.pickBestCandidate(tier3Candidates, targetRole, criteria, effectiveKey, alreadyPickedIds, contextPads),
+        sample: this.pickBestCandidate(tier3Available, targetRole, criteria, effectiveKey, alreadyPickedIds, contextPads),
         notice
       };
     }
 
     // --- TIER 4: Relax Harmonic Key (Any Folder + Role + Any Key) ---
-    if (roleSamples.length > 0) {
+    const tier4Available = roleSamples.filter(isAvail);
+    if (tier4Available.length > 0) {
       const notice = effectiveKey ? `Pad ${padIndex + 1} (${targetRole}): musical key relaxed` : undefined;
       return {
-        sample: this.pickBestCandidate(roleSamples, targetRole, criteria, effectiveKey, alreadyPickedIds, contextPads),
+        sample: this.pickBestCandidate(tier4Available, targetRole, criteria, effectiveKey, alreadyPickedIds, contextPads),
         notice
       };
     }
 
-    // --- TIER 5: Fallback to Any Library Sound or Factory Demo ---
-    if (allSamples.length > 0) {
+    // --- TIER 5: Fallback to Any Unpicked Library Sound ---
+    const tier5Available = allSamples.filter(isAvail);
+    if (tier5Available.length > 0) {
       return {
-        sample: this.pickBestCandidate(allSamples, targetRole, criteria, effectiveKey, alreadyPickedIds, contextPads),
+        sample: this.pickBestCandidate(tier5Available, targetRole, criteria, effectiveKey, alreadyPickedIds, contextPads),
         notice: `Pad ${padIndex + 1} (${targetRole}): role relaxed to library sound`
       };
     }
 
+    // --- TIER 6: Factory Demo Sound ---
     return {
-      sample: this.createDemoSample(targetRole, padIndex, effectiveKey),
-      notice: `Pad ${padIndex + 1} (${targetRole}): factory demo sound`
+      sample: this.createDemoSample(targetRole, padIndex, effectiveKey, alreadyPickedIds, avoidFileName),
+      notice: allSamples.length > 0 
+        ? `Pad ${padIndex + 1} (${targetRole}): filled with factory demo sound` 
+        : `Pad ${padIndex + 1} (${targetRole}): factory demo sound`
     };
   }
 
@@ -564,7 +653,7 @@ export class KitGeneratorService {
     alreadyPickedIds = new Set<string>(),
     contextPads: PadSlot[] = []
   ): SampleRecord {
-    const unpicked = candidates.filter(c => !alreadyPickedIds.has(c.id));
+    const unpicked = candidates.filter(c => !isSamplePicked(c, alreadyPickedIds));
     const pool = unpicked.length > 0 ? unpicked : candidates;
 
     const scored = pool.map(sample => ({
@@ -582,58 +671,79 @@ export class KitGeneratorService {
   }
 
   /**
-   * Create realistic demo sample record when user hasn't scanned local audio yet
+   * Create realistic demo sample record with true role variety, pitch diversity, and unique non-doubled identity
    */
-  private createDemoSample(role: SampleRole, padIndex: number, forcedCamelot?: string): SampleRecord {
-    const demoNames: Record<SampleRole, string[]> = {
-      'Kick/Low': ['808_DeepKick_Punch.wav', 'Sub_Boom_LowC.wav', 'Punchy_Analog_BD.wav'],
-      'Snare/Snap': ['Crisp_Vintage_Snare.wav', 'Tight_Rim_Snap.wav', 'Trap_Clap_Hit.wav'],
-      'Hat/Air': ['Crisp_Closed_HH.wav', 'Sizzle_Open_Hat.wav', 'Shaker_Groove.wav'],
-      'Tonal/Melodic': ['Rhodes_Chords_Am.wav', 'Analog_SubBass_D.wav', 'Vocal_Chop_Melody.wav'],
-      'Texture/Wildcard': ['Vinyl_Crackles_Atmo.wav', 'Foley_Click_Drop.wav', 'Space_Sweep_FX.wav']
-    };
+  private createDemoSample(
+    role: SampleRole,
+    padIndex: number,
+    forcedCamelot?: string,
+    alreadyPickedIds = new Set<string>(),
+    avoidFileName?: string
+  ): SampleRecord {
+    const roleCandidates = FACTORY_DEMO_LIBRARY.filter(s => s.role === role);
+    let available: FactoryDemoSound[] = [];
 
-    const names = demoNames[role] || ['Sample.wav'];
-    const fileName = names[padIndex % names.length];
+    // First attempt: matching role with compatible Camelot key (same, +/-1 step, relative major/minor)
+    if (role === 'Tonal/Melodic' && forcedCamelot) {
+      const compatible = getCompatibleCamelotKeys(forcedCamelot);
+      available = roleCandidates.filter(s => !isSamplePicked(s, alreadyPickedIds, avoidFileName) && s.camelot && compatible.includes(s.camelot));
+    }
 
-    const pitchMap: Record<number, { pitch: number; note: string; camelot: string }> = {
-      0: { pitch: 55, note: 'A1', camelot: '8A' },
-      1: { pitch: 110, note: 'A2', camelot: '8A' },
-      4: { pitch: 220, note: 'A3', camelot: '8A' },
-      5: { pitch: 330, note: 'E4', camelot: '9A' }
-    };
+    // Second attempt: any unpicked sound of this exact role
+    if (available.length === 0) {
+      available = roleCandidates.filter(s => !isSamplePicked(s, alreadyPickedIds, avoidFileName));
+    }
 
-    const pitchInfo = pitchMap[padIndex] || { pitch: 220, note: 'A3', camelot: forcedCamelot || '8A' };
+    // Third attempt: if all demo sounds for this role are already assigned in this kit, pick any unpicked sound from the entire demo library
+    if (available.length === 0) {
+      available = FACTORY_DEMO_LIBRARY.filter(s => !isSamplePicked(s, alreadyPickedIds, avoidFileName));
+    }
+
+    // Fourth attempt: if avoidFileName was specified (respin) but no unpicked sounds exist, pick any sound other than avoidFileName
+    if (available.length === 0) {
+      available = roleCandidates.filter(s => !avoidFileName || s.fileName.toLowerCase() !== avoidFileName.toLowerCase());
+    }
+
+    // Absolute fallback: all role candidates
+    if (available.length === 0) {
+      available = roleCandidates;
+    }
+
+    // Pick random available sound
+    const item = available[Math.floor(Math.random() * available.length)];
+    markSamplePicked(item, alreadyPickedIds);
+
+    const uniqueId = `demo_${item.fileName.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}_${padIndex}_${Math.random().toString(36).substring(2, 6)}`;
 
     const waveformBins = Array.from({ length: 64 }, (_, i) => {
-      const env = Math.exp(-i / (role === 'Hat/Air' ? 10 : 25));
-      const wobble = 0.5 + 0.5 * Math.sin(i * 0.4);
+      const env = Math.exp(-i / (role === 'Hat/Air' ? 10 : role === 'Kick/Low' ? 16 : 28));
+      const wobble = 0.5 + 0.5 * Math.sin(i * 0.4 + padIndex);
       return Math.min(1.0, +(env * wobble).toFixed(2));
     });
 
     return {
-      id: `demo_${role}_${padIndex}`,
+      id: uniqueId,
       folderId: 'demo_factory',
       folderName: 'Factory Demo',
-      fileName,
-      relativePath: `Demo/${fileName}`,
+      fileName: item.fileName,
+      relativePath: `Demo/${item.fileName}`,
       fileSize: 44100 * 2,
       lastModified: Date.now(),
       role,
       acousticProfile: {
-        duration: role === 'Hat/Air' ? 0.18 : role === 'Tonal/Melodic' ? 1.4 : 0.45,
-        transientSharpness: role === 'Snare/Snap' ? 88 : role === 'Kick/Low' ? 76 : role === 'Hat/Air' ? 92 : 45,
+        duration: item.duration,
+        transientSharpness: item.sharpness,
         attackRiseMs: role === 'Snare/Snap' ? 3.2 : role === 'Kick/Low' ? 6.5 : 12.0,
         crestFactorDb: 18.5,
         energyBalance: {
-          low: role === 'Kick/Low' ? 0.65 : 0.1,
+          low: role === 'Kick/Low' ? 0.65 : role === 'Tonal/Melodic' && (item.pitchHz || 0) < 100 ? 0.7 : 0.1,
           mid: role === 'Snare/Snap' ? 0.55 : 0.3,
-          high: role === 'Hat/Air' ? 0.70 : 0.15
+          high: role === 'Hat/Air' ? 0.70 : role === 'Texture/Wildcard' ? 0.4 : 0.15
         },
-        rootPitchHz: role === 'Tonal/Melodic' || role === 'Kick/Low' ? pitchInfo.pitch : undefined,
-        rootKey: role === 'Tonal/Melodic' || role === 'Kick/Low' ? pitchInfo.note : undefined,
-        camelotKey: role === 'Tonal/Melodic' ? pitchInfo.camelot : undefined,
-        pitchConfidence: role === 'Tonal/Melodic' ? 0.85 : 0.4,
+        rootPitchHz: item.pitchHz,
+        rootKey: item.note,
+        camelotKey: item.camelot,
+        pitchConfidence: role === 'Tonal/Melodic' ? 0.90 : 0.4,
         isMelodic: role === 'Tonal/Melodic',
         waveformBins
       },
