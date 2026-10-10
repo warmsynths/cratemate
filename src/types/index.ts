@@ -38,6 +38,18 @@ export interface SampleRecord {
   tags: string[];
 }
 
+export type SliderMode = 'PITCH' | 'FILTER' | 'DECAY' | 'LEVEL' | 'DRIVE' | 'START' | 'REVERSE';
+
+export interface PadFx {
+  pitch?: number;   // -12 to +12 semitones (0 default)
+  filter?: number;  // 1 to 20 cutoff notches (20 = 20kHz / open default)
+  decay?: number;   // 1 to 20 decay scale (10 = 1.0x default)
+  level?: number;   // 0 to 20 volume scale (16 = 100% default)
+  drive?: number;   // 0 to 10 overdrive (0 = clean default)
+  start?: number;   // 0 to 20 start offset in 10ms increments (0ms default)
+  reverse?: boolean; // false default
+}
+
 export interface FolderSource {
   id: string;
   name: string;
@@ -59,6 +71,7 @@ export interface PadSlot {
   locked: boolean;
   isPlaying: boolean;
   isLoading?: boolean;
+  fx?: PadFx;
 }
 
 export interface RoleAcousticTarget {
@@ -81,8 +94,11 @@ export interface AcousticCriteria {
   sharpnessTarget?: 'any' | 'soft' | 'moderate' | 'punchy' | 'ultra-sharp';
   frequencyBias?: 'any' | 'warm-sub' | 'mid-focused' | 'bright-air';
   folderIds?: string[]; // if set, only select samples from these folder IDs
-  keyLockMode?: 'auto' | 'strict' | 'any';
+  keyLockMode?: 'auto' | 'strict' | 'compatible' | 'any';
   lockedCamelotKey?: string; // e.g. "8A"
+  targetRootNote?: string; // e.g. "A", "C", "F#"
+  targetScale?: 'minor' | 'major';
+  autoPitchShift?: boolean; // if true, transpose non-drum samples to precisely match target key
   roleTemplates?: Partial<Record<PadCount, SampleRole[]>>;
   roleProfiles?: Partial<Record<SampleRole, RoleAcousticTarget>>;
   macroPunch?: number; // 0-100 (scales transient targets)
@@ -115,6 +131,7 @@ export interface Kit {
   presetName?: string;
   criteria?: AcousticCriteria;
   fallbackNotices?: string[];
+  roleMix?: Partial<Record<SampleRole, number>>;
 }
 
 export interface ScanProgress {
@@ -128,7 +145,7 @@ export interface ScanProgress {
   error?: string;
 }
 
-export type HardwareTarget = 'm8' | 'sp404mk2' | 'universal' | 'dual';
+export type HardwareTarget = 'm8' | 'sp404mk2' | 'universal' | 'po33' | 'dual';
 
 export interface HardwareExportOptions {
   target: HardwareTarget;
@@ -136,10 +153,17 @@ export interface HardwareExportOptions {
   convertToHardwareSpec: boolean;
   normalizeAudio: boolean;
   includeKitInfo: boolean;
+  bakePadFx?: boolean; // Render non-destructive pitch, filter, decay, drive, trim into exported audio
 }
 
 export interface HardwareFileEntry {
   relativePath: string;
   data: Uint8Array;
 }
+
+export interface AppearanceSettings {
+  stickers: boolean;
+  vintage: boolean;
+}
+
 

@@ -5,7 +5,18 @@ import { scanner } from '../services/scanner.ts';
 import { audioEngine } from '../services/audio-engine.ts';
 import { kitGenerator } from '../services/kit-generator.ts';
 import { FACTORY_PRESETS, DEFAULT_PRESET_ID } from '../services/presets.ts';
-import type { AcousticCriteria, FolderSource, Kit, KitPreset, PadCount, PadSlot } from '../types/index.ts';
+import { SLIDER_MODES } from './mpc-controls.ts';
+import type { 
+  AcousticCriteria, 
+  FolderSource, 
+  Kit, 
+  KitPreset, 
+  PadCount, 
+  PadSlot, 
+  SampleRole, 
+  SliderMode,
+  AppearanceSettings 
+} from '../types/index.ts';
 
 import './mpc-lcd.ts';
 import './mpc-controls.ts';
@@ -27,119 +38,82 @@ export class CrateMateApp extends LitElement {
   @state() private toastMessage?: string;
   @state() private volume = audioEngine.getVolume() || 0.9;
   @state() private isSetupDiskOpen = false;
-  @state() private lastHitName = '—';
   @state() private activeSlot?: PadSlot;
+  @state() private activePadIndex: number | null = null;
   @state() private isPlaying = false;
   @state() private freshIndices: number[] = [];
   @state() private folderCursor = 0;
   @state() private serialNumber = 1;
+  @state() private sliderMode: SliderMode = 'PITCH';
+  @state() private roleMix?: Partial<Record<SampleRole, number>>;
+  @state() private look: AppearanceSettings = {
+    stickers: false,
+    vintage: false
+  };
 
   private undoStack: Kit[] = [];
   private toastTimeout = 0;
   private playTimeout = 0;
   private unsubscribeProgress?: () => void;
+  private scaleObserver?: ResizeObserver;
 
   static styles = css`
     :host {
-      display: flex;
-      flex-direction: column;
+      display: block;
       height: 100vh;
       height: 100dvh;
-      max-height: 100vh;
+      width: 100%;
       background: linear-gradient(160deg, #dcddd7 0%, #cdcec8 55%, #c2c3bd 100%);
       color: #25261f;
       font-family: 'Barlow', system-ui, sans-serif;
-      padding: clamp(4px, 0.8vh, 8px) 14px clamp(6px, 1vh, 10px);
+      -webkit-font-smoothing: antialiased;
       box-sizing: border-box;
       user-select: none;
       overflow: hidden;
     }
 
+    *, *::before, *::after { box-sizing: border-box; }
+
+    /* Root faceplate: matches design root (padding, 20px gap, row layout) */
     .chassis-wrapper {
-      max-width: 1380px;
-      width: 100%;
+      position: relative;
       height: 100%;
-      margin: 0 auto;
       display: flex;
-      flex-direction: column;
-      gap: clamp(4px, 0.8vh, 8px);
-      min-height: 0;
-      box-sizing: border-box;
-    }
-
-    /* TOP CHASSIS BRANDING BAR */
-    .chassis-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      flex: 0 0 auto;
-      padding-bottom: 2px;
-      border-bottom: 2px solid #a2a39c;
-    }
-
-    .brand-title-group {
-      display: flex;
-      align-items: baseline;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
-    .brand-main-title {
-      font-family: 'Barlow Condensed', sans-serif;
-      font-size: clamp(18px, 1.8vw, 22px);
-      font-weight: 700;
-      letter-spacing: 1.5px;
-      color: #25261f;
-      line-height: 1;
-    }
-
-    .brand-red-accent {
-      color: #cf4436;
-      font-size: clamp(15px, 1.5vw, 18px);
-      letter-spacing: 1px;
-    }
-
-    .brand-sub-title {
-      font-family: 'DM Mono', monospace;
-      font-size: 9.5px;
-      color: #4c4d44;
-      letter-spacing: 0.6px;
-    }
-
-    .header-status-group {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .header-badge {
-      font-family: 'DM Mono', monospace;
-      font-size: 9.5px;
-      color: #3c3d35;
-      background: #b7c3c7;
-      border: 1px solid #8b989c;
-      padding: 1.5px 6px;
-      border-radius: 2px;
-    }
-
-    /* FACEPLATE TWO-PANEL LAYOUT */
-    .faceplate-layout {
-      flex: 1 1 0;
-      min-height: 0;
-      display: flex;
+      flex-wrap: nowrap;
       gap: 20px;
       align-items: stretch;
+      padding: clamp(10px, 1.6vh, 18px) clamp(12px, 1.4vw, 20px);
     }
 
+    .chassis-wrapper.vintage {
+      filter: sepia(0.32) saturate(0.82) contrast(0.96) brightness(0.98);
+    }
+
+    .vintage-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 5;
+      mix-blend-mode: multiply;
+      background:
+        radial-gradient(ellipse at 0% 0%, rgba(120, 92, 40, 0.22), transparent 38%),
+        radial-gradient(ellipse at 100% 100%, rgba(110, 84, 36, 0.26), transparent 42%),
+        radial-gradient(ellipse at 100% 0%, rgba(120, 92, 40, 0.12), transparent 30%),
+        repeating-linear-gradient(103deg, transparent 0 140px, rgba(80, 64, 30, 0.05) 140px 141px, transparent 141px 310px),
+        repeating-linear-gradient(-71deg, transparent 0 220px, rgba(255, 255, 255, 0.18) 220px 221px, transparent 221px 470px);
+      display: block;
+    }
+
+    /* Left column: fixed-size hardware, zoomed by JS to fit window height */
     .console-column {
-      flex: 0 0 clamp(380px, 34vw, 440px);
-      max-width: 460px;
-      min-width: 360px;
+      flex: 0 0 clamp(330px, 28vw, 420px);
+      max-width: 100%;
+      min-width: 0;
       min-height: 0;
+      overflow-y: visible;
       display: flex;
       flex-direction: column;
-      gap: 14px;
+      gap: clamp(4px, 1vh, 14px);
     }
 
     .pads-column {
@@ -148,34 +122,28 @@ export class CrateMateApp extends LitElement {
       min-height: 0;
       display: flex;
       flex-direction: column;
-      gap: 8px;
     }
 
-    /* RESPONSIVE MOBILE ADAPTATION */
-    @media (max-width: 900px), (max-height: 520px) {
+    /* MOBILE (< 560px, same as design) */
+    @media (max-width: 559px) {
       :host {
         height: auto;
         min-height: 100vh;
-        max-height: none;
-        overflow-y: auto;
-        padding: 10px 10px 24px;
+        overflow: visible;
       }
       .chassis-wrapper {
         height: auto;
+        min-height: 100vh;
+        flex-wrap: wrap;
+        align-content: flex-start;
+        align-items: flex-start;
+        padding: 18px 20px;
       }
-      .faceplate-layout {
-        flex-direction: column;
-        flex: 0 0 auto;
-      }
-      .console-column {
-        flex: 1 1 100%;
-        max-width: 100%;
-        min-width: 0;
-      }
+      .console-column,
       .pads-column {
         flex: 1 1 100%;
-        min-width: 0;
       }
+      .console-column { zoom: 1 !important; }
     }
 
     /* TOAST MESSAGE */
@@ -210,6 +178,13 @@ export class CrateMateApp extends LitElement {
     super.connectedCallback();
     window.addEventListener('keydown', this.handleGlobalKeyDown);
 
+    try {
+      const savedLook = localStorage.getItem('cratemate_look');
+      if (savedLook) {
+        this.look = { ...this.look, ...JSON.parse(savedLook) };
+      }
+    } catch (_) {}
+
     await this.refreshData();
 
     // Subscribe to directory scanner progress updates
@@ -220,8 +195,43 @@ export class CrateMateApp extends LitElement {
       this.requestUpdate();
     });
 
-    // Initialize audio volume
     audioEngine.setVolume(this.volume);
+
+    // Left-column fit: zoom just the console column so its hardware fits the window height.
+    // Matches the design's fitLeft() — only the left panel zooms, pads stay natural.
+    this.scaleObserver = new ResizeObserver(() => this._fitLeft());
+    this.scaleObserver.observe(this);
+    await this.updateComplete;
+    this._fitLeft();
+  }
+
+  private _fitLeftTimer = 0;
+  private _fitLeft() {
+    if (this._fitLeftTimer) return;
+    this._fitLeftTimer = window.setTimeout(() => {
+      this._fitLeftTimer = 0;
+      const el = this.shadowRoot?.querySelector('.console-column') as HTMLElement | null;
+      if (!el) return;
+      if (window.innerWidth < 560) {
+        el.style.zoom = '';
+        return;
+      }
+      // Design fitLeft(): measure at zoom 1, compare to the column's own (stretched) height
+      el.style.zoom = '1';
+      const top = el.getBoundingClientRect().top;
+      const need = Math.max(
+        el.scrollHeight,
+        ...Array.from(el.children, c => c.getBoundingClientRect().bottom - top)
+      ) + 4;
+      const have = el.clientHeight;
+      const z = need > have ? Math.max(0.5, have / need) : 1;
+      el.style.zoom = z === 1 ? '' : z.toFixed(4);
+    }, 0);
+  }
+
+
+  updated() {
+    this._fitLeft();
   }
 
   disconnectedCallback() {
@@ -230,6 +240,7 @@ export class CrateMateApp extends LitElement {
     if (this.unsubscribeProgress) {
       this.unsubscribeProgress();
     }
+    this.scaleObserver?.disconnect();
     clearTimeout(this.toastTimeout);
     clearTimeout(this.playTimeout);
   }
@@ -284,6 +295,7 @@ export class CrateMateApp extends LitElement {
       if (savedKit && !hasOldRepetitiveDemos) {
         this.activeKit = savedKit;
         this.padCount = savedKit.padCount;
+        this.roleMix = savedKit.roleMix;
         this.preloadKitAudio(savedKit);
       } else {
         await this.handleGenerateKit(false);
@@ -301,33 +313,8 @@ export class CrateMateApp extends LitElement {
           if (file) {
             audioEngine.cachePadAudio(pad.sample!.id, file);
           }
-        }).catch(() => {
-          // In background preload, handle permissions may be prompt-pending.
-          // Do NOT cache synthetic fallback into realAudioBuffers!
-        });
+        }).catch(() => {});
       }
-    }
-  }
-
-  private async refreshFolderPermissions() {
-    let updated = false;
-    for (const folder of this.folders) {
-      const handle = folder.handle || await storage.getFolderHandle(folder.id);
-      if (handle && 'queryPermission' in handle) {
-        try {
-          const perm = await (handle as any).queryPermission({ mode: 'read' });
-          const isGranted = perm === 'granted';
-          if (folder.permissionGranted !== isGranted) {
-            folder.permissionGranted = isGranted;
-            updated = true;
-            await storage.saveFolderSource(folder);
-          }
-        } catch (_) {}
-      }
-    }
-    if (updated) {
-      this.folders = [...this.folders];
-      this.requestUpdate();
     }
   }
 
@@ -345,7 +332,7 @@ export class CrateMateApp extends LitElement {
     const slot = this.activeKit.pads[padIndex];
     if (!slot || !slot.sample) return;
 
-    this.lastHitName = slot.sample.fileName.replace(/\.[^/.]+$/, '');
+    this.activePadIndex = padIndex;
     this.activeSlot = slot;
     this.isPlaying = true;
     clearTimeout(this.playTimeout);
@@ -355,17 +342,19 @@ export class CrateMateApp extends LitElement {
 
     try {
       const sample = slot.sample;
-      const wasRealCached = audioEngine.isRealSampleCached(sample.id);
-      await audioEngine.playSample(sample, () => scanner.getFileForSample(sample));
-
-      // If user authorization succeeded during this click, immediately preload all kit samples from that folder!
-      if (!wasRealCached && audioEngine.isRealSampleCached(sample.id)) {
-        this.preloadKitAudio(this.activeKit);
-        this.refreshFolderPermissions();
-      }
+      await audioEngine.playSample(sample, () => scanner.getFileForSample(sample), slot.fx);
     } catch (err) {
       console.warn('Playback error:', err);
     }
+  };
+
+  private handleInspectPad = (e: CustomEvent<{ padIndex: number }>) => {
+    const padIndex = e.detail.padIndex;
+    this.activePadIndex = padIndex;
+    if (this.activeKit) {
+      this.activeSlot = this.activeKit.pads[padIndex];
+    }
+    this.currentScreen = 'INFO';
   };
 
   private handlePadLock = async (e: CustomEvent<{ padIndex: number; locked: boolean }>) => {
@@ -389,7 +378,6 @@ export class CrateMateApp extends LitElement {
       setTimeout(() => { this.freshIndices = []; }, 2200);
       this.preloadKitAudio(this.activeKit);
       this.showToast(`↻ Respun Pad ${String(padIndex + 1).padStart(2, '0')}`);
-      // Audition immediately
       this.handlePadTrigger(new CustomEvent('pad-trigger', { detail: { padIndex } }));
     } catch (err: any) {
       this.showToast(`Could not respin: ${err.message || err}`);
@@ -417,7 +405,8 @@ export class CrateMateApp extends LitElement {
         this.activeKit,
         rerollAll,
         this.activePresetId,
-        this.activeCriteria
+        this.activeCriteria,
+        this.roleMix
       );
 
       this.serialNumber++;
@@ -443,8 +432,87 @@ export class CrateMateApp extends LitElement {
 
     this.activeKit = prev;
     this.padCount = prev.padCount;
+    this.roleMix = prev.roleMix;
     await storage.saveActiveKit(prev);
     this.showToast('Undo kit');
+  };
+
+  private handleSliderValueChange = async (e: CustomEvent<{ mode: SliderMode; value: number; padIndex: number | null }>) => {
+    if (!this.activeKit) return;
+    const { mode, value, padIndex } = e.detail;
+
+    const targetIndices = padIndex !== null ? [padIndex] : Array.from({ length: this.padCount }, (_, i) => i);
+
+    for (const idx of targetIndices) {
+      const pad = this.activeKit.pads[idx];
+      if (pad) {
+        if (!pad.fx) pad.fx = {};
+        switch (mode) {
+          case 'PITCH': pad.fx.pitch = value; break;
+          case 'FILTER': pad.fx.filter = value; break;
+          case 'DECAY': pad.fx.decay = value; break;
+          case 'LEVEL': pad.fx.level = value; break;
+          case 'DRIVE': pad.fx.drive = value; break;
+          case 'START': pad.fx.start = value; break;
+          case 'REVERSE': pad.fx.reverse = value === 1; break;
+        }
+      }
+    }
+
+    this.activeKit = { ...this.activeKit };
+    if (padIndex !== null) {
+      this.activeSlot = this.activeKit.pads[padIndex];
+    }
+    await storage.saveActiveKit(this.activeKit);
+  };
+
+  private handleDataWheelStep = async (e: CustomEvent<{ step: number }>) => {
+    const step = e.detail.step;
+    if (this.currentScreen === 'MAIN') {
+      const allPresets = [...FACTORY_PRESETS, ...this.customPresets];
+      const curIdx = Math.max(0, allPresets.findIndex(p => p.id === this.activePresetId));
+      const nextIdx = (curIdx + step + allPresets.length) % allPresets.length;
+      this.activePresetId = allPresets[nextIdx].id;
+      this.activeCriteria = { ...allPresets[nextIdx].criteria };
+      await storage.saveActivePresetId(this.activePresetId);
+      await this.handleGenerateKit(false);
+    } else if (this.currentScreen === 'SOURCES') {
+      if (this.folders.length > 0) {
+        this.folderCursor = (this.folderCursor + step + this.folders.length) % this.folders.length;
+      }
+    } else if (this.currentScreen === 'INFO') {
+      const cfg = SLIDER_MODES.find(m => m.k === this.sliderMode) || SLIDER_MODES[0];
+      const pad = this.activePadIndex !== null && this.activeKit ? this.activeKit.pads[this.activePadIndex] : undefined;
+      if (pad) {
+        const curVal = (pad.fx as any)?.[this.sliderMode.toLowerCase()] ?? cfg.def;
+        const nextVal = Math.max(cfg.min, Math.min(cfg.max, curVal + step));
+        this.handleSliderValueChange(new CustomEvent('slider-value-change', {
+          detail: { mode: this.sliderMode, value: nextVal, padIndex: this.activePadIndex }
+        }));
+      }
+    }
+  };
+
+  private handleRoleMixChange = async (e: CustomEvent<{ roleMix?: Partial<Record<SampleRole, number>> }>) => {
+    this.roleMix = e.detail.roleMix;
+    this.showToast('Target role mix updated');
+    await this.handleGenerateKit(false);
+  };
+
+  private handleSwapPadRole = async (e: CustomEvent<{ padIndex: number; newRole: SampleRole }>) => {
+    if (!this.activeKit) return;
+    const { padIndex, newRole } = e.detail;
+    const slot = this.activeKit.pads[padIndex];
+    if (slot) {
+      slot.role = newRole;
+      await this.handleRerollSinglePad(new CustomEvent('reroll-single-pad', { detail: { padIndex } }));
+    }
+  };
+
+  private handleLookChange = (e: CustomEvent<{ stickers?: boolean; vintage?: boolean }>) => {
+    this.look = { ...this.look, ...e.detail };
+    localStorage.setItem('cratemate_look', JSON.stringify(this.look));
+    this.requestUpdate();
   };
 
   private handleVolumeChange = (e: CustomEvent<{ volume: number }>) => {
@@ -461,69 +529,6 @@ export class CrateMateApp extends LitElement {
 
   private handleScreenChange = (e: CustomEvent<{ screen: LcdScreen }>) => {
     this.currentScreen = e.detail.screen;
-  };
-
-  private handleSelectPresetIndex = async (e: CustomEvent<{ index: number }>) => {
-    const allPresets = [...FACTORY_PRESETS, ...this.customPresets];
-    const target = allPresets[e.detail.index];
-    if (target && target.id !== this.activePresetId) {
-      this.activePresetId = target.id;
-      this.activeCriteria = { ...target.criteria };
-      await storage.saveActivePresetId(target.id);
-      await this.handleGenerateKit(false);
-    }
-  };
-
-  private handleWheelTurn = (e: CustomEvent<{ dir: number }>) => {
-    const dir = e.detail.dir;
-    if (this.currentScreen === 'SOURCES') {
-      if (this.folders.length > 0) {
-        this.folderCursor = Math.max(0, Math.min(this.folders.length - 1, this.folderCursor + dir));
-      }
-    } else {
-      const SIZES: PadCount[] = [4, 6, 8, 16];
-      const curIdx = SIZES.indexOf(this.padCount);
-      const nextIdx = Math.max(0, Math.min(SIZES.length - 1, curIdx + dir));
-      if (SIZES[nextIdx] !== this.padCount) {
-        this.handlePadCountChange(new CustomEvent('pad-count-change', { detail: { count: SIZES[nextIdx] } }));
-      }
-    }
-  };
-
-  private handleFKeyPress = (e: CustomEvent<{ keyNum: number; screen: LcdScreen }>) => {
-    const n = e.detail.keyNum;
-    const screen = e.detail.screen;
-
-    if (screen === 'INFO') {
-      if (n === 1 && this.activeSlot) this.handleRerollSinglePad(new CustomEvent('reroll-single-pad', { detail: { padIndex: this.activeSlot.index } }));
-      if (n === 3 && this.activeSlot) this.handlePadLock(new CustomEvent('pad-lock', { detail: { padIndex: this.activeSlot.index, locked: !this.activeSlot.locked } }));
-      if (n === 4) this.currentScreen = 'SOURCES';
-      if (n === 5) this.isSetupDiskOpen = true;
-      if (n === 6) this.currentScreen = 'MAIN';
-    } else if (screen === 'SOURCES') {
-      if (n === 1) this.folderCursor = Math.max(0, this.folderCursor - 1);
-      if (n === 2) this.folderCursor = Math.min(this.folders.length - 1, this.folderCursor + 1);
-      if (n === 3) {
-        const f = this.folders[this.folderCursor];
-        if (f) this.handleReconnectFolder(f.id);
-      }
-      if (n === 4) this.isSetupDiskOpen = true;
-      if (n === 6) this.currentScreen = 'MAIN';
-    } else {
-      // MAIN
-      if (n === 1) this.handleGenerateKit(false);
-      if (n === 2 && this.activeKit) {
-        // Toggle Keep all
-        const anyUnlocked = this.activeKit.pads.slice(0, this.padCount).some(p => !p.locked);
-        this.activeKit.pads.forEach((p, idx) => { if (idx < this.padCount) p.locked = anyUnlocked; });
-        storage.saveActiveKit(this.activeKit);
-        this.requestUpdate();
-      }
-      if (n === 3) this.currentScreen = 'INFO';
-      if (n === 4) this.currentScreen = 'SOURCES';
-      if (n === 5) this.isSetupDiskOpen = true;
-      if (n === 6) this.isSetupDiskOpen = true;
-    }
   };
 
   private handleReconnectFolder = async (folderId: string) => {
@@ -545,22 +550,8 @@ export class CrateMateApp extends LitElement {
     const defaultPrefix = this.folders.find(f => f.pathPrefix)?.pathPrefix || '';
 
     return html`
-      <div class="chassis-wrapper">
-        <!-- TOP AUTHENTIC BRANDING HEADER -->
-        <header class="chassis-header">
-          <div class="brand-title-group">
-            <span class="brand-main-title">CRATEMATE <span class="brand-red-accent">MPC2000XL</span></span>
-            <span class="brand-sub-title">ACOUSTIC KIT CURATOR & HARDWARE SAMPLER</span>
-          </div>
-
-          <div class="header-status-group">
-            <span class="header-badge">${this.totalIndexedCount.toLocaleString()} SAMPLES</span>
-            <span class="header-badge">${this.folders.length} SOURCES</span>
-          </div>
-        </header>
-
-        <!-- TWO PANEL CHASSIS LAYOUT -->
-        <div class="faceplate-layout">
+      <div class="chassis-wrapper ${this.look.vintage ? 'vintage' : ''}">
+        ${this.look.vintage ? html`<span class="vintage-overlay"></span>` : ''}
           <!-- LEFT CONSOLE (LCD & HARDWARE CONTROLS) -->
           <div class="console-column">
             <mpc-lcd
@@ -570,14 +561,23 @@ export class CrateMateApp extends LitElement {
               .padCount=${this.padCount}
               .keptCount=${keptCount}
               .poolSize=${this.totalIndexedCount}
-              .lastHitName=${this.lastHitName}
               .activeSlot=${this.activeSlot}
+              .activePadIndex=${this.activePadIndex}
               .isPlaying=${this.isPlaying}
+              .isGenerating=${this.isGeneratingKit}
               .folders=${this.folders}
               .folderCursor=${this.folderCursor}
-              @fkey-press=${this.handleFKeyPress}
-              @reconnect-folder=${(e: CustomEvent<{ folderId: string }>) => this.handleReconnectFolder(e.detail.folderId)}
-              @select-folder-cursor=${(e: CustomEvent<{ index: number }>) => this.folderCursor = e.detail.index}
+              .roleMix=${this.roleMix || {}}
+              .stickers=${this.look.stickers}
+              @generate-kit=${() => this.handleGenerateKit(false)}
+              @reroll-single-pad=${this.handleRerollSinglePad}
+              @pad-lock=${this.handlePadLock}
+              @swap-pad-role=${this.handleSwapPadRole}
+              @role-mix-change=${this.handleRoleMixChange}
+              @open-setup-disk=${() => this.isSetupDiskOpen = true}
+              @add-folder=${() => { this.isSetupDiskOpen = true; }}
+              @folder-toggle=${(e: CustomEvent<{ folderId: string }>) => this.handleReconnectFolder(e.detail.folderId)}
+              @folder-cursor-change=${(e: CustomEvent<{ cursor: number }>) => this.folderCursor = e.detail.cursor}
             ></mpc-lcd>
 
             <mpc-controls
@@ -588,14 +588,20 @@ export class CrateMateApp extends LitElement {
               .isGenerating=${this.isGeneratingKit}
               .presetNames=${allPresets.map(p => p.name)}
               .activePresetIndex=${activePresetIdx}
+              .sliderMode=${this.sliderMode}
+              .activePadSlot=${this.activeSlot}
+              .activePadIndex=${this.activePadIndex}
+              .stickers=${this.look.stickers}
+              .wheelField=${this.currentScreen === 'SOURCES' ? 'SOURCE' : this.currentScreen === 'INFO' ? this.sliderMode : 'PRESET'}
               @generate-kit=${() => this.handleGenerateKit(false)}
               @undo-kit=${this.handleUndo}
               @open-setup-disk=${() => this.isSetupDiskOpen = true}
               @pad-count-change=${this.handlePadCountChange}
               @screen-change=${this.handleScreenChange}
               @volume-change=${this.handleVolumeChange}
-              @select-preset-index=${this.handleSelectPresetIndex}
-              @wheel-turn=${this.handleWheelTurn}
+              @slider-mode-change=${(e: CustomEvent<{ mode: SliderMode }>) => this.sliderMode = e.detail.mode}
+              @slider-value-change=${this.handleSliderValueChange}
+              @data-wheel-step=${this.handleDataWheelStep}
             ></mpc-controls>
           </div>
 
@@ -606,12 +612,13 @@ export class CrateMateApp extends LitElement {
               .padCount=${this.padCount}
               .freshIndices=${this.freshIndices}
               .pathPrefix=${defaultPrefix}
+              .stickers=${this.look.stickers}
               @pad-trigger=${this.handlePadTrigger}
+              @inspect-pad=${this.handleInspectPad}
               @pad-lock=${this.handlePadLock}
               @reroll-single-pad=${this.handleRerollSinglePad}
             ></pad-grid>
           </div>
-        </div>
       </div>
 
       <!-- SETUP DISK DRAWER MODAL -->
@@ -622,8 +629,11 @@ export class CrateMateApp extends LitElement {
         .activePresetId=${this.activePresetId}
         .folders=${this.folders}
         .criteria=${this.activeCriteria}
+        .stickers=${this.look.stickers}
+        .vintage=${this.look.vintage}
         @close-disk=${() => this.isSetupDiskOpen = false}
         @reconnect-folder=${(e: CustomEvent<{ folderId: string }>) => this.handleReconnectFolder(e.detail.folderId)}
+        @look-change=${this.handleLookChange}
         @select-preset=${(e: CustomEvent<{ presetId: string }>) => {
           this.activePresetId = e.detail.presetId;
           const p = allPresets.find(item => item.id === e.detail.presetId);
@@ -635,6 +645,10 @@ export class CrateMateApp extends LitElement {
           await scanner.scanFolder(e.detail.folder);
           await this.refreshData();
           await this.handleGenerateKit(false);
+        }}
+        @criteria-change=${(e: CustomEvent<{ criteria: AcousticCriteria }>) => {
+          this.activeCriteria = { ...this.activeCriteria, ...e.detail.criteria };
+          this.handleGenerateKit(false);
         }}
         @toast=${(e: CustomEvent<{ message: string }>) => this.showToast(e.detail.message)}
       ></setup-disk-drawer>

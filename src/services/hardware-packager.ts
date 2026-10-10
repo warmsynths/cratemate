@@ -131,7 +131,7 @@ CRATEMATE HARDWARE KIT COMPANION
 ============================================================
 Kit Name:        ${kit.name}
 Generated:       ${timestamp}
-Hardware Target: ${target === 'm8' ? 'Dirtywave M8 Tracker' : target === 'sp404mk2' ? 'Roland SP-404MKII' : 'Dual Package (M8 & SP-404MKII)'}
+Hardware Target: ${target === 'm8' ? 'Dirtywave M8 Tracker' : target === 'sp404mk2' ? 'Roland SP-404MKII' : target === 'po33' ? 'Teenage Engineering PO-33' : target === 'universal' ? 'Universal DAW / MPC' : 'Dual Package (M8 & SP-404MKII)'}
 Pad Count:       ${kit.padCount} Pads
 Harmonic Key:    ${camelot} (${key})
 Suggested BPM:   ${suggestedBpm}
@@ -165,6 +165,13 @@ QUICK START HARDWARE INSTRUCTIONS
      - Press [ENTER] -> [EXECUTE] -> Press Pad 1.
      - Your complete kit is instantly laid out across Bank A!
 
+* TEENAGE ENGINEERING PO-33 / OP-Z:
+  1. Resampled to 22.05kHz mono to conserve battery & sample memory.
+  2. Load into drum slot 09–16.
+
+* UNIVERSAL WAV:
+  1. Compatible with all general samplers, DAWs, and Akai MPC devices.
+
 ============================================================
 Exported with CrateMate • Local-First Sample Curation
 ============================================================
@@ -190,7 +197,8 @@ Exported with CrateMate • Local-First Sample Curation
 
     // Determine target sample rates
     const targets: Array<{
-      id: 'm8' | 'sp404mk2';
+      id: HardwareTarget;
+      label: string;
       sampleRate: number;
       baseDir: string;
       prefixFn: (idx: number) => string;
@@ -200,6 +208,7 @@ Exported with CrateMate • Local-First Sample Curation
     if (options.target === 'm8') {
       targets.push({
         id: 'm8',
+        label: 'Dirtywave M8 (44.1kHz 16-bit)',
         sampleRate: 44100,
         baseDir: `Samples/CrateMate/${safeKitName}`,
         prefixFn: (i: number) => `${String(i + 1).padStart(2, '0')}`,
@@ -208,15 +217,35 @@ Exported with CrateMate • Local-First Sample Curation
     } else if (options.target === 'sp404mk2') {
       targets.push({
         id: 'sp404mk2',
+        label: 'Roland SP-404MKII (48kHz 16-bit)',
         sampleRate: 48000,
         baseDir: `ROLAND/IMPORT/CrateMate/${safeKitName}`,
         prefixFn: (i: number) => `A${String(i + 1).padStart(2, '0')}`,
         chainName: `${safeKitName}_Chain_16Pad_48k.wav`
       });
+    } else if (options.target === 'po33') {
+      targets.push({
+        id: 'po33',
+        label: 'Teenage Engineering PO-33 / OP-Z (22.05kHz)',
+        sampleRate: 22050,
+        baseDir: `PO33/${safeKitName}`,
+        prefixFn: (i: number) => `Pad_${String(i + 1).padStart(2, '0')}`,
+        chainName: `${safeKitName}_PO33_Chain_22k.wav`
+      });
+    } else if (options.target === 'universal') {
+      targets.push({
+        id: 'universal',
+        label: 'Universal WAV (44.1kHz 24-bit)',
+        sampleRate: 44100,
+        baseDir: `CrateMate/${safeKitName}`,
+        prefixFn: (i: number) => `${String(i + 1).padStart(2, '0')}`,
+        chainName: `${safeKitName}_Chain_44k.wav`
+      });
     } else {
       // Dual package
       targets.push({
         id: 'm8',
+        label: 'Dirtywave M8 (44.1kHz 16-bit)',
         sampleRate: 44100,
         baseDir: `m8/Samples/CrateMate/${safeKitName}`,
         prefixFn: (i: number) => `${String(i + 1).padStart(2, '0')}`,
@@ -224,6 +253,7 @@ Exported with CrateMate • Local-First Sample Curation
       });
       targets.push({
         id: 'sp404mk2',
+        label: 'Roland SP-404MKII (48kHz 16-bit)',
         sampleRate: 48000,
         baseDir: `sp404mk2/ROLAND/IMPORT/CrateMate/${safeKitName}`,
         prefixFn: (i: number) => `A${String(i + 1).padStart(2, '0')}`,
@@ -233,7 +263,7 @@ Exported with CrateMate • Local-First Sample Curation
 
     // Process audio per target
     for (const t of targets) {
-      onProgress?.(`Processing audio for ${t.id === 'm8' ? 'Dirtywave M8 (44.1kHz)' : 'SP-404MKII (48kHz)'}...`);
+      onProgress?.(`Processing audio for ${t.label}...`);
 
       const processedBuffers: AudioBuffer[] = [];
 
@@ -246,6 +276,11 @@ Exported with CrateMate • Local-First Sample Curation
         if (!rawBuffer) continue;
 
         let finalBuffer = rawBuffer;
+
+        // Render pad FX (pitch, filter, decay, drive, start, reverse) if enabled
+        if (options.bakePadFx !== false && pad.fx) {
+          finalBuffer = await audioEngine.renderBufferWithFx(finalBuffer, pad.fx);
+        }
 
         if (options.convertToHardwareSpec) {
           finalBuffer = await resampleAudioBuffer(finalBuffer, t.sampleRate);

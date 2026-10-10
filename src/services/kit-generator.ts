@@ -1,5 +1,11 @@
 import { storage } from './storage.ts';
 import { FACTORY_ROLE_TEMPLATES, FACTORY_PRESETS, DEFAULT_PRESET_ID, mergeCriteria } from './presets.ts';
+import { 
+  getCamelotFromRoot, 
+  getMusicalKeyDef, 
+  getHarmonicMatches, 
+  calculateSemitoneShift 
+} from './musical-keys.ts';
 import type { AcousticCriteria, Kit, PadCount, PadSlot, SampleRecord, SampleRole } from '../types/index.ts';
 
 const QWERTY_KEYS_16 = ['1', '2', '3', '4', 'Q', 'W', 'E', 'R', 'A', 'S', 'D', 'F', 'Z', 'X', 'C', 'V'];
@@ -275,20 +281,22 @@ export function scoreCandidate(
   }
 
   // 7. Harmonic Key Compatibility
-  if (targetRole === 'Tonal/Melodic' && effectiveKey) {
+  if ((targetRole === 'Tonal/Melodic' || profile.camelotKey) && effectiveKey) {
     if (profile.camelotKey) {
       if (profile.camelotKey === effectiveKey) {
-        score += 50;
+        score += 80;
       } else {
-        const compatible = getCompatibleCamelotKeys(effectiveKey);
+        const compatible = getHarmonicMatches(effectiveKey).all;
         if (compatible.includes(profile.camelotKey)) {
-          score += 35;
+          score += 45;
+        } else if (criteria.keyLockMode === 'strict') {
+          score -= 90;
         } else {
-          score -= 35;
+          score -= 25;
         }
       }
     } else {
-      score -= 10;
+      score -= (criteria.keyLockMode === 'strict' ? 30 : 10);
     }
   }
 
@@ -301,14 +309,15 @@ export function scoreCandidate(
 export class KitGeneratorService {
   /**
    * Create or reroll a kit with given pad count (4, 6, 8, or 16)
-   * Uses role-specific acoustic targets, progressive relaxation fallbacks, and strict de-duplication.
+   * Uses role-specific acoustic targets, custom LCD roleMix overrides, and strict de-duplication.
    */
   async generateKit(
     padCount: PadCount = 8,
     existingKit?: Kit,
     rerollAll = false,
     presetId = DEFAULT_PRESET_ID,
-    customCriteria?: AcousticCriteria
+    customCriteria?: AcousticCriteria,
+    customRoleMix?: Partial<Record<SampleRole, number>>
   ): Promise<Kit> {
     const allSamples = await storage.getAllSamples();
     const customPresets = await storage.getCustomPresets();
@@ -316,15 +325,31 @@ export class KitGeneratorService {
     const activePreset = allPresets.find(p => p.id === presetId) || FACTORY_PRESETS[0];
 
     const criteria = mergeCriteria(activePreset.criteria, customCriteria);
-    const roleTemplate = criteria.roleTemplates?.[padCount] || FACTORY_ROLE_TEMPLATES[padCount];
+    
+    // Build active role sequence from customRoleMix or factory template
+    let roleTemplate: SampleRole[] = [];
+    if (customRoleMix) {
+      for (const [role, count] of Object.entries(customRoleMix) as [SampleRole, number][]) {
+        for (let c = 0; c < count; c++) {
+          roleTemplate.push(role);
+        }
+      }
+    }
+    const defaultTemplate = criteria.roleTemplates?.[padCount] || FACTORY_ROLE_TEMPLATES[padCount];
+    while (roleTemplate.length < padCount) {
+      roleTemplate.push(defaultTemplate[roleTemplate.length] || 'Texture/Wildcard');
+    }
+    roleTemplate = roleTemplate.slice(0, padCount);
 
     const pads: PadSlot[] = [];
     const fallbackNotices: string[] = [];
     let dominantCamelotKey: string | undefined;
 
-    // Check if key is strictly locked in criteria
-    if (criteria.keyLockMode === 'strict' && criteria.lockedCamelotKey) {
+    // Check if key is explicitly locked/targeted in criteria
+    if (criteria.lockedCamelotKey && criteria.lockedCamelotKey !== 'any') {
       dominantCamelotKey = criteria.lockedCamelotKey;
+    } else if (criteria.targetRootNote && criteria.targetRootNote !== 'any') {
+      dominantCamelotKey = getCamelotFromRoot(criteria.targetRootNote, criteria.targetScale || 'minor');
     } else if (existingKit && !rerollAll) {
       for (let i = 0; i < Math.min(existingKit.pads.length, padCount); i++) {
         const slot = existingKit.pads[i];
@@ -337,7 +362,7 @@ export class KitGeneratorService {
 
     const alreadyPickedIds = new Set<string>();
 
-    // First pass: collect locked pads to preserve their samples and keys
+    // First pass: collect locked pads to preserve their samples, keys, and fx
     for (let i = 0; i < padCount; i++) {
       const keybind = `${QWERTY_KEYS_16[i] || (i + 1)} / ${NUMBER_KEYS_16[i] || (i + 1)}`;
       if (existingKit && !rerollAll && existingKit.pads[i] && existingKit.pads[i].locked && existingKit.pads[i].sample) {
@@ -354,14 +379,14 @@ export class KitGeneratorService {
       }
     }
 
-    // Second pass: fill unlocked slots
+    // Second pass: fill unlocked slots up to padCount
     for (let i = 0; i < padCount; i++) {
       if (pads.find(p => p.index === i)) {
         continue;
       }
 
       let targetRole = roleTemplate[i] || 'Texture/Wildcard';
-      if (existingKit && existingKit.pads[i] && !rerollAll) {
+      if (existingKit && existingKit.pads[i] && !rerollAll && !customRoleMix) {
         targetRole = existingKit.pads[i].role;
       }
 
@@ -388,11 +413,48 @@ export class KitGeneratorService {
         }
       }
 
+      let slotFx = existingKit?.pads[i]?.fx ? { ...existingKit.pads[i].fx } : undefined;
+
+      // Auto-tune / pitch-shift non-drum / melodic samples if target key is known and autoPitchShift is enabled
+      if (criteria.autoPitchShift && dominantCamelotKey && targetRole === 'Tonal/Melodic' && selectedSample) {
+        const targetDef = getMusicalKeyDef(dominantCamelotKey);
+        const sampleRoot = selectedSample.acousticProfile.rootKey;
+        if (sampleRoot) {
+          const shift = calculateSemitoneShift(sampleRoot, targetDef.root);
+          if (shift !== 0 && Math.abs(shift) <= 3) {
+            slotFx = slotFx || {};
+            slotFx.pitch = shift;
+          }
+        }
+      }
+
       pads.push({
         index: i,
         keybind,
         role: targetRole,
         sample: selectedSample,
+        locked: false,
+        isPlaying: false,
+        fx: slotFx
+      });
+    }
+
+    // Third pass: ensure all 16 slots exist in pads so inactive rows render cleanly as OFF rubber pads
+    const BANK16_FALLBACK: SampleRole[] = [
+      'Kick/Low', 'Snare/Snap', 'Hat/Air', 'Tonal/Melodic',
+      'Hat/Air', 'Snare/Snap', 'Tonal/Melodic', 'Texture/Wildcard',
+      'Kick/Low', 'Snare/Snap', 'Hat/Air', 'Tonal/Melodic',
+      'Hat/Air', 'Texture/Wildcard', 'Snare/Snap', 'Texture/Wildcard'
+    ];
+
+    for (let i = padCount; i < 16; i++) {
+      const keybind = `${QWERTY_KEYS_16[i] || (i + 1)} / ${NUMBER_KEYS_16[i] || (i + 1)}`;
+      const existing = existingKit?.pads[i];
+      pads.push({
+        index: i,
+        keybind,
+        role: existing?.role || BANK16_FALLBACK[i],
+        sample: undefined,
         locked: false,
         isPlaying: false
       });
@@ -400,17 +462,22 @@ export class KitGeneratorService {
 
     pads.sort((a, b) => a.index - b.index);
 
-    const kitName = this.generateKitName(activePreset.name, dominantCamelotKey);
+    const effectiveDominantKey = dominantCamelotKey || (criteria.lockedCamelotKey && criteria.lockedCamelotKey !== 'any' ? criteria.lockedCamelotKey : undefined);
+    const dominantKeyDef = effectiveDominantKey ? getMusicalKeyDef(effectiveDominantKey) : undefined;
+    const kitName = this.generateKitName(activePreset.name, effectiveDominantKey);
+
     const newKit: Kit = {
       id: 'kit_' + Math.random().toString(36).substring(2, 9),
       name: kitName,
       padCount,
       pads,
-      dominantCamelot: dominantCamelotKey,
+      dominantKey: dominantKeyDef?.shortName,
+      dominantCamelot: effectiveDominantKey,
       generatedAt: Date.now(),
       presetId: activePreset.id,
       presetName: activePreset.name,
       criteria,
+      roleMix: customRoleMix,
       fallbackNotices: fallbackNotices.length > 0 ? fallbackNotices : undefined
     };
 

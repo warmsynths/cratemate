@@ -22,12 +22,14 @@ export class PadGrid extends LitElement {
   @property({ type: Number }) padCount: PadCount = 8;
   @property({ type: Array }) freshIndices: number[] = [];
   @property({ type: String }) pathPrefix = '';
+  @property({ type: Boolean }) stickers = false;
+  @property({ type: String }) activeDevice = 'sp404mk2';
 
   static styles = css`
     :host {
       display: flex;
       flex-direction: column;
-      gap: clamp(4px, 0.6vh, 6px);
+      gap: 8px;
       width: 100%;
       height: 100%;
       min-width: 0;
@@ -38,35 +40,73 @@ export class PadGrid extends LitElement {
     .bank-header {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
       flex: 0 0 auto;
-      line-height: 1;
+      flex-wrap: wrap;
+      position: relative;
     }
 
     .bank-badge {
       background: #b7c3c7;
       border: 1px solid #8b989c;
-      padding: 1.5px 6px;
+      padding: 3px 10px;
       white-space: nowrap;
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 9px;
+      font-size: 10px;
       font-weight: 600;
-      letter-spacing: 1.5px;
-      color: #22241f;
-      border-radius: 2px;
+      letter-spacing: 2.2px;
+      color: #25261f;
     }
 
     .bank-divider {
       flex: 1 1 auto;
+      min-width: 0;
       height: 1px;
       background: #a8a9a2;
+      position: relative;
+    }
+
+    .tape-sticker {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%) rotate(-1.5deg);
+      z-index: 6;
+      pointer-events: none;
+      display: flex;
+      align-items: stretch;
+      background: #f4efe1;
+      border: 1px solid #b9ae8e;
+      border-radius: 2px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+      overflow: hidden;
+      white-space: nowrap;
+    }
+
+    .tape-red {
+      background: #c1382c;
+      color: #f4efe1;
+      font-family: 'Archivo Black', sans-serif;
+      font-size: 8px;
+      letter-spacing: 1.4px;
+      padding: 4px 6px;
+      display: flex;
+      align-items: center;
+    }
+
+    .tape-title {
+      font-family: 'Permanent Marker', cursive;
+      font-size: 12px;
+      color: #1f2a6b;
+      padding: 1px 8px;
+      line-height: 16px;
     }
 
     .bank-stats {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 9px;
+      font-size: 10px;
       font-weight: 600;
-      letter-spacing: 1.3px;
+      letter-spacing: 1.8px;
       color: #3c3d35;
       white-space: nowrap;
     }
@@ -74,19 +114,24 @@ export class PadGrid extends LitElement {
     .matrix-container {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
-      grid-template-rows: repeat(4, minmax(0, 1fr));
-      gap: clamp(4px, 0.7vh, 8px);
+      grid-auto-rows: minmax(0, 1fr);
+      gap: 8px;
       width: 100%;
-      height: 100%;
-      flex: 1 1 0;
+      flex: 1 1 auto;
       min-height: 0;
     }
 
-    @media (max-width: 639px) {
+    @media (max-width: 559px) {
+      :host {
+        height: auto;
+        flex: 0 0 auto;
+      }
+      .matrix-container sample-pad.off {
+        display: none;
+      }
       .matrix-container {
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        grid-template-rows: repeat(8, minmax(95px, 1fr));
-        height: auto;
+        grid-auto-rows: minmax(clamp(104px, 10vw, 150px), 1fr);
       }
     }
   `;
@@ -123,7 +168,13 @@ export class PadGrid extends LitElement {
         if (padEls) {
           padEls.forEach((el: any) => {
             if (el.padIndex === idx && !el.isOff) {
-              el.trigger();
+              if (e.shiftKey) {
+                el.toggleKeep(e);
+              } else if (e.altKey) {
+                el.respin(e);
+              } else {
+                el.trigger();
+              }
             }
           });
         }
@@ -142,27 +193,26 @@ export class PadGrid extends LitElement {
     });
     if (targetEl && typeof targetEl.trigger === 'function') {
       targetEl.trigger();
-    } else {
-      const slot = this.pads[padIndex];
-      if (slot) {
-        this.dispatchEvent(new CustomEvent('audition', {
-          detail: { slot, padIndex },
-          bubbles: true,
-          composed: true
-        }));
-      }
     }
   }
 
   render() {
     const activeCount = Math.min(this.pads.length, this.padCount);
-    const offCount = 16 - activeCount;
+    const totalSecs = this.pads.slice(0, activeCount).reduce((acc, p) => acc + (p.sample?.acousticProfile.duration || 0), 0);
+    const devLabel = this.activeDevice === 'sp404mk2' ? 'SP-404MKII' : this.activeDevice === 'm8' ? 'M8 TRACKER' : this.activeDevice === 'po33' ? 'PO-33' : 'UNIVERSAL';
 
     return html`
       <div class="bank-header">
-        <span class="bank-badge">PAD BANK A</span>
-        <span class="bank-divider"></span>
-        <span class="bank-stats">PADS 1–${activeCount} ACTIVE · ${offCount} OFF</span>
+        <span class="bank-badge">PAD BANK A${window.innerWidth < 560 ? ` · 2×${Math.ceil(this.padCount / 2)}` : ''}</span>
+        <span class="bank-divider">
+          ${this.stickers ? html`
+            <span class="tape-sticker">
+              <span class="tape-red">BEAT TAPE</span>
+              <span class="tape-title">Vol. 2 — Basement</span>
+            </span>
+          ` : ''}
+        </span>
+        <span class="bank-stats">${devLabel} · ${activeCount} PADS · ${totalSecs.toFixed(1)}s</span>
       </div>
 
       <div class="matrix-container">
@@ -173,6 +223,7 @@ export class PadGrid extends LitElement {
 
           return html`
             <sample-pad
+              class=${isLive ? '' : 'off'}
               .slotData=${slot}
               .padIndex=${i}
               .isOff=${!isLive}

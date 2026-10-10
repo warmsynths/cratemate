@@ -302,10 +302,12 @@ export function detectPitchYIN(
   return { rootPitchHz, confidence };
 }
 
+import { parseKeyFromFilename } from './musical-keys.ts';
+
 /**
  * Compute full acoustic profile for an AudioBuffer
  */
-export function computeAcousticProfile(audioBuffer: AudioBuffer): AcousticProfile {
+export function computeAcousticProfile(audioBuffer: AudioBuffer, fileName?: string): AcousticProfile {
   const duration = +audioBuffer.duration.toFixed(2);
   const sampleRate = audioBuffer.sampleRate;
   
@@ -330,7 +332,18 @@ export function computeAcousticProfile(audioBuffer: AudioBuffer): AcousticProfil
   let camelotKey: string | undefined;
   let isMelodic = false;
 
-  if (pitchResult.rootPitchHz && pitchResult.confidence >= 0.55 && duration >= 0.12) {
+  // First check filename for explicit key tag (e.g. "Rhodes_Am_90.wav", "8A_pad.wav")
+  if (fileName) {
+    const fileKey = parseKeyFromFilename(fileName);
+    if (fileKey) {
+      rootKey = fileKey.rootKey;
+      camelotKey = fileKey.camelotKey;
+      isMelodic = true;
+    }
+  }
+
+  // Use acoustic pitch detection if not set or to supplement
+  if (!rootKey && pitchResult.rootPitchHz && pitchResult.confidence >= 0.55 && duration >= 0.12) {
     const noteInfo = frequencyToNote(pitchResult.rootPitchHz);
     rootKey = noteInfo.fullNote;
     camelotKey = noteToCamelot(noteInfo.note, false);

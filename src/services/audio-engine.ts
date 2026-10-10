@@ -1,5 +1,5 @@
 import { computeAcousticProfile } from './dsp.ts';
-import type { AcousticProfile, SampleRecord } from '../types/index.ts';
+import type { AcousticProfile, SampleRecord, PadFx } from '../types/index.ts';
 
 export class AudioEngine {
   private ctx: AudioContext | null = null;
@@ -108,8 +108,8 @@ export class AudioEngine {
       // decodeAudioData consumes arrayBuffer
       const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
       
-      // Compute acoustic features
-      const profile = computeAcousticProfile(audioBuffer);
+      // Compute acoustic features with filename key heuristic
+      const profile = computeAcousticProfile(audioBuffer, task.file.name);
 
       // Resolve profile
       task.resolve(profile);
@@ -165,25 +165,103 @@ export class AudioEngine {
   }
 
   /**
-   * Play an AudioBuffer instantly with gain control
+   * Generates a soft-saturation overdrive waveshaping curve
    */
-  playBuffer(buffer: AudioBuffer, volume = 0.9): AudioBufferSourceNode {
+  makeDistortionCurve(k = 20): Float32Array {
+    const n = 512;
+    const curve = new Float32Array(n);
+    const deg = Math.PI / 180;
+    for (let i = 0; i < n; ++i) {
+      const x = (i * 2) / n - 1;
+      curve[i] = ((3 + k) * x * 20 * deg) / (Math.PI + k * Math.abs(x));
+    }
+    return curve;
+  }
+
+  /**
+   * Reverse PCM channel buffers
+   */
+  getReversedBuffer(ctx: BaseAudioContext, buffer: AudioBuffer): AudioBuffer {
+    const rev = ctx.createBuffer(buffer.numberOfChannels, buffer.length, buffer.sampleRate);
+    for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+      const src = buffer.getChannelData(ch);
+      const dst = rev.getChannelData(ch);
+      for (let i = 0, j = buffer.length - 1; i < buffer.length; i++, j--) {
+        dst[i] = src[j];
+      }
+    }
+    return rev;
+  }
+
+  /**
+   * Play an AudioBuffer instantly with gain control and per-pad DSP effects
+   */
+  playBuffer(buffer: AudioBuffer, volume = 0.9, fx?: PadFx): AudioBufferSourceNode {
     const ctx = this.getContext();
     const source = ctx.createBufferSource();
-    source.buffer = buffer;
+    
+    let playBuf = buffer;
+    if (fx && fx.reverse) {
+      playBuf = this.getReversedBuffer(ctx, buffer);
+    }
+    source.buffer = playBuf;
 
+    // Pitch shift
+    if (fx && fx.pitch) {
+      source.playbackRate.value = Math.pow(2, fx.pitch / 12);
+    }
+
+    let lastNode: AudioNode = source;
+
+    // Filter (Cutoff: 1 to 20 notches, 20 = 20kHz open)
+    const filterVal = fx && fx.filter != null ? fx.filter : 20;
+    let filterNode: BiquadFilterNode | null = null;
+    if (filterVal < 20) {
+      filterNode = ctx.createBiquadFilter();
+      filterNode.type = 'lowpass';
+      const cutoff = Math.round(200 * Math.pow(20000 / 200, (filterVal - 1) / 19));
+      filterNode.frequency.setValueAtTime(cutoff, ctx.currentTime);
+      lastNode.connect(filterNode);
+      lastNode = filterNode;
+    }
+
+    // Drive (0 to 10)
+    const driveVal = fx && fx.drive ? fx.drive : 0;
+    let driveNode: WaveShaperNode | null = null;
+    if (driveVal > 0) {
+      driveNode = ctx.createWaveShaper();
+      driveNode.curve = this.makeDistortionCurve(driveVal * 6) as any;
+      lastNode.connect(driveNode);
+      lastNode = driveNode;
+    }
+
+    // Level & Decay envelope
     const gainNode = ctx.createGain();
-    gainNode.gain.setValueAtTime(volume, ctx.currentTime);
+    const levelVal = fx && fx.level != null ? fx.level : 16;
+    const padGain = (levelVal / 16) * volume;
+    gainNode.gain.setValueAtTime(padGain, ctx.currentTime);
 
-    source.connect(gainNode);
+    const decayVal = fx && fx.decay != null ? fx.decay : 10;
+    if (decayVal !== 10) {
+      const decayFactor = Math.pow(2, (decayVal - 10) / 5);
+      const effectiveDuration = Math.max(0.04, Math.min(buffer.duration * decayFactor, 4.0));
+      gainNode.gain.setValueAtTime(padGain, ctx.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + effectiveDuration);
+    }
+
+    lastNode.connect(gainNode);
     gainNode.connect(this.getMasterGain());
 
-    source.start(0);
+    // Start trim offset
+    const startOffset = fx && fx.start ? Math.min(fx.start * 0.01, playBuf.duration - 0.01) : 0;
+    source.start(0, startOffset);
     this.activeSources.add(source);
 
     source.onended = () => {
       this.activeSources.delete(source);
       source.disconnect();
+      if (filterNode) filterNode.disconnect();
+      if (driveNode) driveNode.disconnect();
       gainNode.disconnect();
     };
 
@@ -191,10 +269,9 @@ export class AudioEngine {
   }
 
   /**
-   * Play sample from File, pre-cached buffer, or distinct synthesized sound.
-   * Real user files will always be attempted via getFileHandle() if not yet decoded in realAudioBuffers.
+   * Play sample from File, pre-cached buffer, or distinct synthesized sound, applying PadFx.
    */
-  async playSample(sample: SampleRecord, getFileHandle?: () => Promise<File | undefined>): Promise<void> {
+  async playSample(sample: SampleRecord, getFileHandle?: () => Promise<File | undefined>, fx?: PadFx): Promise<void> {
     await this.ensureAudioContext();
 
     // 1. Check if real decoded audio from user file is already in memory
@@ -217,7 +294,85 @@ export class AudioEngine {
       buffer = this.getOrCreateSyntheticBuffer(sample);
     }
 
-    this.playBuffer(buffer);
+    this.playBuffer(buffer, 0.9, fx);
+  }
+
+  /**
+   * Offline render an AudioBuffer with PadFx baked in for hardware export.
+   */
+  async renderBufferWithFx(buffer: AudioBuffer, fx?: PadFx): Promise<AudioBuffer> {
+    if (!fx || (
+      !fx.pitch && 
+      (fx.filter == null || fx.filter === 20) && 
+      (fx.decay == null || fx.decay === 10) && 
+      (fx.level == null || fx.level === 16) && 
+      !fx.drive && 
+      !fx.start && 
+      !fx.reverse
+    )) {
+      return buffer;
+    }
+
+    let srcBuffer = buffer;
+    if (fx.reverse) {
+      srcBuffer = this.getReversedBuffer(this.getContext(), buffer);
+    }
+
+    const pitch = fx.pitch || 0;
+    const rate = Math.pow(2, pitch / 12);
+    const startOffset = Math.min((fx.start || 0) * 0.01, srcBuffer.duration - 0.01);
+    const decayVal = fx.decay != null ? fx.decay : 10;
+    const decayFactor = Math.pow(2, (decayVal - 10) / 5);
+    const effectiveDuration = Math.max(0.05, Math.min(6.0, (srcBuffer.duration - startOffset) / rate * decayFactor));
+    const renderLength = Math.ceil(effectiveDuration * srcBuffer.sampleRate);
+
+    const offlineCtx = new OfflineAudioContext(
+      srcBuffer.numberOfChannels,
+      renderLength,
+      srcBuffer.sampleRate
+    );
+
+    const source = offlineCtx.createBufferSource();
+    source.buffer = srcBuffer;
+    source.playbackRate.value = rate;
+
+    let lastNode: AudioNode = source;
+
+    // Filter
+    const filterVal = fx.filter != null ? fx.filter : 20;
+    if (filterVal < 20) {
+      const filter = offlineCtx.createBiquadFilter();
+      filter.type = 'lowpass';
+      const cutoff = Math.round(200 * Math.pow(20000 / 200, (filterVal - 1) / 19));
+      filter.frequency.setValueAtTime(cutoff, 0);
+      lastNode.connect(filter);
+      lastNode = filter;
+    }
+
+    // Drive
+    const driveVal = fx.drive || 0;
+    if (driveVal > 0) {
+      const shaper = offlineCtx.createWaveShaper();
+      shaper.curve = this.makeDistortionCurve(driveVal * 6) as any;
+      lastNode.connect(shaper);
+      lastNode = shaper;
+    }
+
+    // Gain / Decay / Level
+    const gainNode = offlineCtx.createGain();
+    const levelVal = fx.level != null ? fx.level : 16;
+    const targetGain = (levelVal / 16);
+    gainNode.gain.setValueAtTime(targetGain, 0);
+
+    if (decayVal !== 10) {
+      gainNode.gain.exponentialRampToValueAtTime(0.001, effectiveDuration);
+    }
+
+    lastNode.connect(gainNode);
+    gainNode.connect(offlineCtx.destination);
+
+    source.start(0, startOffset);
+    return await offlineCtx.startRendering();
   }
 
   /**
