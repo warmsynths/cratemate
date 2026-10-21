@@ -3,11 +3,10 @@ import { FACTORY_ROLE_TEMPLATES, FACTORY_PRESETS, DEFAULT_PRESET_ID, mergeCriter
 import { 
   getCamelotFromRoot, 
   getMusicalKeyDef, 
-  getHarmonicMatches, 
-  calculateSemitoneShift 
+  getHarmonicMatches
 } from './musical-keys.ts';
 import { GHOST_LEVEL, classifyHat, layoutSlotLabel } from './layouts.ts';
-import type { AcousticCriteria, HatKind, Kit, PadCount, PadLayout, PadSlot, SampleRecord, SampleRole } from '../types/index.ts';
+import type { AcousticCriteria, HatKind, Kit, LayoutSlot, PadCount, PadFx, PadLayout, PadSlot, SampleRecord, SampleRole } from '../types/index.ts';
 
 const QWERTY_KEYS_16 = ['1', '2', '3', '4', 'Q', 'W', 'E', 'R', 'A', 'S', 'D', 'F', 'Z', 'X', 'C', 'V'];
 const NUMBER_KEYS_16 = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', 'A', 'B', 'C', 'D'];
@@ -55,6 +54,16 @@ export const FACTORY_DEMO_LIBRARY: FactoryDemoSound[] = [
   { fileName: 'Sizzle HiHat.wav', role: 'Hat/Air', duration: 0.28, pitchHz: 8400, sharpness: 91 },
   { fileName: 'Half Open HH.wav', role: 'Hat/Air', duration: 0.22, pitchHz: 8000, sharpness: 89 },
   { fileName: 'Organic Shaker Loop.wav', role: 'Hat/Air', duration: 0.32, pitchHz: 6500, sharpness: 82 },
+
+  // Perc/Hit (8 distinct hand-percussion profiles)
+  { fileName: 'Conga Lo 02.wav', role: 'Perc/Hit', duration: 0.32, pitchHz: 196, note: 'G3', sharpness: 78 },
+  { fileName: 'Bongo Hi A.wav', role: 'Perc/Hit', duration: 0.18, pitchHz: 392, note: 'G4', sharpness: 86 },
+  { fileName: 'Wood Block 3.wav', role: 'Perc/Hit', duration: 0.12, pitchHz: 880, note: 'A5', sharpness: 94 },
+  { fileName: 'Cowbell Dust.wav', role: 'Perc/Hit', duration: 0.36, pitchHz: 560, note: 'C#5', sharpness: 84 },
+  { fileName: 'Clave Click.wav', role: 'Perc/Hit', duration: 0.1, pitchHz: 2400, sharpness: 96 },
+  { fileName: 'Tom Lo 70s.wav', role: 'Perc/Hit', duration: 0.55, pitchHz: 98, note: 'G2', sharpness: 72 },
+  { fileName: 'Timbale Ring.wav', role: 'Perc/Hit', duration: 0.42, pitchHz: 330, note: 'E4', sharpness: 88 },
+  { fileName: 'Agogo Low.wav', role: 'Perc/Hit', duration: 0.3, pitchHz: 740, note: 'F#5', sharpness: 82 },
 
   // Tonal/Melodic (11 distinct acoustic profiles & Camelot wheel spread)
   { fileName: 'Rhodes Am 90.wav', role: 'Tonal/Melodic', duration: 1.4, pitchHz: 220, note: 'A3', camelot: '8A', sharpness: 45 },
@@ -104,6 +113,35 @@ export function getCompatibleCamelotKeys(camelotKey: string): string[] {
     `${num}${oppositeLetter}`     // relative major/minor
   ];
 }
+
+const SCALE_STEPS: Record<'minor' | 'major', number[]> = {
+  minor: [0, 2, 3, 5, 7, 8, 10],
+  major: [0, 2, 4, 5, 7, 9, 11]
+};
+
+/**
+ * Smallest pitch shift (in semitones) that moves a note into the given key's scale.
+ * Returns 0 when the note is already in key or can't be parsed.
+ */
+export function semitonesIntoScale(note: string | undefined, root: string, scale: 'minor' | 'major'): number {
+  if (!note) return 0;
+  const base = NOTE_INDEX[note.replace(/[0-9\-]/g, '')];
+  const rootIdx = NOTE_INDEX[root];
+  if (base === undefined || rootIdx === undefined) return 0;
+  const inKey = (n: number) => SCALE_STEPS[scale].includes(((n - rootIdx) % 12 + 12) % 12);
+  for (const d of [0, -1, 1, -2, 2]) {
+    if (inKey(base + d)) return d;
+  }
+  return 0;
+}
+
+const NOTE_INDEX: Record<string, number> = {
+  C: 0, 'C#': 1, Db: 1, D: 2, 'D#': 3, Eb: 3, E: 4, F: 5, 'F#': 6, Gb: 6,
+  G: 7, 'G#': 8, Ab: 8, A: 9, 'A#': 10, Bb: 10, B: 11
+};
+
+/** Roles whose detected note gets nudged into the kit key. */
+const REPITCH_ROLES = new Set<SampleRole>(['Kick/Low', 'Tonal/Melodic']);
 
 /**
  * Universal de-duplication helper to check if a sample or file has already been assigned to another pad
@@ -319,7 +357,8 @@ export class KitGeneratorService {
     presetId = DEFAULT_PRESET_ID,
     customCriteria?: AcousticCriteria,
     customRoleMix?: Partial<Record<SampleRole, number>>,
-    layout?: PadLayout
+    layout?: PadLayout,
+    slotPlan?: LayoutSlot[]
   ): Promise<Kit> {
     const allSamples = await storage.getAllSamples();
     const customPresets = await storage.getCustomPresets();
@@ -331,10 +370,13 @@ export class KitGeneratorService {
     // A layout only applies to full 16-pad kits and takes precedence over the LCD role mix
     const activeLayout = layout && padCount === 16 ? layout : undefined;
 
-    // Build active role sequence from the layout, customRoleMix or factory template
+    // Per-slot constraints: a layout wins, then an explicit slot plan (from the recipe)
+    const activeSlots: LayoutSlot[] | undefined = activeLayout ? activeLayout.slots : slotPlan;
+
+    // Build active role sequence from the slots, customRoleMix or factory template
     let roleTemplate: SampleRole[] = [];
-    if (activeLayout) {
-      roleTemplate = activeLayout.slots.map(s => s.role);
+    if (activeSlots) {
+      roleTemplate = activeSlots.slice(0, padCount).map(s => s.role);
     } else if (customRoleMix) {
       for (const [role, count] of Object.entries(customRoleMix) as [SampleRole, number][]) {
         for (let c = 0; c < count; c++) {
@@ -379,7 +421,7 @@ export class KitGeneratorService {
           index: i,
           keybind,
           isPlaying: false,
-          hat: layoutSlot?.hat,
+          hat: layoutSlot ? layoutSlot.hat : existingKit.pads[i].hat,
           ghostOf: layoutSlot?.ghostOf,
           label: layoutSlot ? layoutSlotLabel(layoutSlot) : undefined
         };
@@ -396,14 +438,14 @@ export class KitGeneratorService {
         continue;
       }
 
-      const layoutSlot = activeLayout?.slots[i];
+      const layoutSlot = activeSlots?.[i];
       // Ghost pads are copied from their main pad once all mains are picked
-      if (layoutSlot?.ghostOf !== undefined) {
+      if (activeLayout && layoutSlot?.ghostOf !== undefined) {
         continue;
       }
 
       let targetRole = roleTemplate[i] || 'Texture/Wildcard';
-      if (!activeLayout && existingKit && existingKit.pads[i] && !rerollAll && !customRoleMix) {
+      if (!activeSlots && existingKit && existingKit.pads[i] && !rerollAll && !customRoleMix) {
         targetRole = existingKit.pads[i].role;
       }
 
@@ -432,19 +474,13 @@ export class KitGeneratorService {
         }
       }
 
-      let slotFx = existingKit?.pads[i]?.fx ? { ...existingKit.pads[i].fx } : undefined;
+      // A freshly picked sample starts with clean pad settings
+      let slotFx: PadFx | undefined;
 
-      // Auto-tune / pitch-shift non-drum / melodic samples if target key is known and autoPitchShift is enabled
-      if (criteria.autoPitchShift && dominantCamelotKey && targetRole === 'Tonal/Melodic' && selectedSample) {
-        const targetDef = getMusicalKeyDef(dominantCamelotKey);
-        const sampleRoot = selectedSample.acousticProfile.rootKey;
-        if (sampleRoot) {
-          const shift = calculateSemitoneShift(sampleRoot, targetDef.root);
-          if (shift !== 0 && Math.abs(shift) <= 3) {
-            slotFx = slotFx || {};
-            slotFx.pitch = shift;
-          }
-        }
+      // Nudge kick and melodic samples into the kit key when a key is set
+      if (criteria.autoPitchShift && dominantCamelotKey && REPITCH_ROLES.has(targetRole) && selectedSample) {
+        const shift = this.keyShift(selectedSample, dominantCamelotKey);
+        if (shift !== 0) slotFx = { pitch: shift };
       }
 
       pads.push({
@@ -452,7 +488,7 @@ export class KitGeneratorService {
         keybind,
         role: targetRole,
         hat: layoutSlot?.hat,
-        label: layoutSlot ? layoutSlotLabel(layoutSlot) : undefined,
+        label: activeLayout && layoutSlot ? layoutSlotLabel(layoutSlot) : undefined,
         sample: selectedSample,
         locked: false,
         isPlaying: false,
@@ -575,6 +611,7 @@ export class KitGeneratorService {
         return {
           ...p,
           sample: newSample,
+          fx: this.retuneFx(p, newSample, effectiveCriteria, currentKit.dominantCamelot),
           isPlaying: false
         };
       }
@@ -654,6 +691,23 @@ export class KitGeneratorService {
 
     await storage.saveActiveKit(updatedKit);
     return updatedKit;
+  }
+
+  /** Pitch shift that puts a sample's detected note into the kit key (0 if unknown). */
+  private keyShift(sample: SampleRecord, camelotKey: string): number {
+    const def = getMusicalKeyDef(camelotKey);
+    return semitonesIntoScale(sample.acousticProfile.rootKey, def.root, def.scale);
+  }
+
+  /**
+   * Keep a pad's own tweaks when its sample is swapped, but swap the old key correction for the new sample's.
+   */
+  private retuneFx(pad: PadSlot, next: SampleRecord, criteria: AcousticCriteria, camelotKey?: string): PadFx | undefined {
+    if (!criteria.autoPitchShift || !camelotKey || !REPITCH_ROLES.has(pad.role)) return pad.fx;
+    const oldShift = pad.sample ? this.keyShift(pad.sample, camelotKey) : 0;
+    const userPitch = (pad.fx?.pitch ?? 0) - oldShift;
+    const pitch = userPitch + this.keyShift(next, camelotKey);
+    return { ...pad.fx, pitch };
   }
 
   /**
@@ -878,7 +932,7 @@ export class KitGeneratorService {
     const uniqueId = `demo_${item.fileName.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}_${padIndex}_${Math.random().toString(36).substring(2, 6)}`;
 
     const waveformBins = Array.from({ length: 64 }, (_, i) => {
-      const env = Math.exp(-i / (role === 'Hat/Air' ? 10 : role === 'Kick/Low' ? 16 : 28));
+      const env = Math.exp(-i / (role === 'Hat/Air' || role === 'Perc/Hit' ? 10 : role === 'Kick/Low' ? 16 : 28));
       const wobble = 0.5 + 0.5 * Math.sin(i * 0.4 + padIndex);
       return Math.min(1.0, +(env * wobble).toFixed(2));
     });
@@ -899,7 +953,7 @@ export class KitGeneratorService {
         crestFactorDb: 18.5,
         energyBalance: {
           low: role === 'Kick/Low' ? 0.65 : role === 'Tonal/Melodic' && (item.pitchHz || 0) < 100 ? 0.7 : 0.1,
-          mid: role === 'Snare/Snap' ? 0.55 : 0.3,
+          mid: role === 'Snare/Snap' || role === 'Perc/Hit' ? 0.55 : 0.3,
           high: role === 'Hat/Air' ? 0.70 : role === 'Texture/Wildcard' ? 0.4 : 0.15
         },
         rootPitchHz: item.pitchHz,

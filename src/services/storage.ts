@@ -1,4 +1,5 @@
 import { get, set, del, keys } from 'idb-keyval';
+import { classifySampleRole } from './classifier.ts';
 import type { FolderSource, SampleRecord, SampleRole, Kit, KitPreset } from '../types/index.ts';
 
 const FOLDERS_KEY = 'cratemate_folder_sources';
@@ -7,6 +8,10 @@ const ACTIVE_KIT_KEY = 'cratemate_active_kit';
 const FOLDER_HANDLES_PREFIX = 'cratemate_handle_';
 const CUSTOM_PRESETS_KEY = 'cratemate_custom_presets';
 const ACTIVE_PRESET_ID_KEY = 'cratemate_active_preset_id';
+const CLASSIFIER_VERSION_KEY = 'cratemate_classifier_version';
+
+/** Bump when classifier rules change so stored samples get re-labelled from their saved profiles. */
+export const CLASSIFIER_VERSION = 2;
 
 export class StorageService {
   /**
@@ -205,6 +210,25 @@ export class StorageService {
    */
   async saveActivePresetId(presetId: string): Promise<void> {
     await set(ACTIVE_PRESET_ID_KEY, presetId);
+  }
+
+  /**
+   * Re-run role classification on stored samples when the classifier has changed.
+   * Uses the saved acoustic profiles, so no audio is decoded. Returns how many roles changed.
+   */
+  async reclassifyIfOutdated(): Promise<number> {
+    const version = (await get<number>(CLASSIFIER_VERSION_KEY)) ?? 1;
+    if (version >= CLASSIFIER_VERSION) return 0;
+    let changed = 0;
+    for (const sample of await this.getAllSamples()) {
+      const { role, tags } = classifySampleRole(sample.fileName, sample.acousticProfile, sample.relativePath);
+      if (role !== sample.role) {
+        await this.saveSample({ ...sample, role, tags });
+        changed++;
+      }
+    }
+    await set(CLASSIFIER_VERSION_KEY, CLASSIFIER_VERSION);
+    return changed;
   }
 
   /**

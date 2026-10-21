@@ -2,6 +2,7 @@ export type SampleRole =
   | 'Kick/Low' 
   | 'Snare/Snap' 
   | 'Hat/Air' 
+  | 'Perc/Hit'
   | 'Tonal/Melodic' 
   | 'Texture/Wildcard';
 
@@ -91,7 +92,7 @@ export interface RoleAcousticTarget {
   negativeKeywords?: string[]; // negative keywords (e.g. ['acoustic', 'vintage'])
 }
 
-export type PadCount = 4 | 6 | 8 | 16;
+export type PadCount = 4 | 6 | 8 | 12 | 16;
 
 export interface AcousticCriteria {
   durationMin?: number; // global duration filter

@@ -34,7 +34,9 @@ export class AudioEngine {
       const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.ctx = new AudioContextClass();
     }
-    if (this.ctx.state === 'suspended') {
+    // Only try to resume after the user has interacted, otherwise browsers refuse and log a warning
+    const activated = (navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation?.hasBeenActive ?? true;
+    if (this.ctx.state === 'suspended' && activated) {
       this.ctx.resume().catch(() => {});
     }
     return this.ctx;
@@ -492,6 +494,8 @@ export class AudioEngine {
       } else {
         buffer = this.generateParametricSound(ctx, sample);
       }
+    } else if (role === 'Perc/Hit') {
+      buffer = this.generateParametricSound(ctx, sample);
     } else if (role === 'Tonal/Melodic') {
       if (key.includes('rhodes')) {
         buffer = this.generateRhodesChord(ctx);
@@ -1488,7 +1492,7 @@ export class AudioEngine {
     }
     const seed = Math.abs(hash);
     const varFactor = 0.88 + 0.24 * ((seed % 100) / 100);
-    const basePitch = profile?.rootPitchHz || (role === 'Kick/Low' ? 52 : role === 'Snare/Snap' ? 205 : role === 'Hat/Air' ? 7600 : 220);
+    const basePitch = profile?.rootPitchHz || (role === 'Kick/Low' ? 52 : role === 'Snare/Snap' ? 205 : role === 'Hat/Air' ? 7600 : role === 'Perc/Hit' ? 320 : 220);
     const pitch = basePitch * varFactor;
 
     if (role === 'Kick/Low') {
@@ -1611,6 +1615,40 @@ export class AudioEngine {
           const noise = (Math.random() * 2 - 1) * 0.85;
           const decay = Math.exp(-t * 36);
           data[i] = noise * flutter * decay * 0.8;
+        }
+      }
+    } else if (role === 'Perc/Hit') {
+      // Hand percussion: pick the voice from the name, otherwise from the seed
+      const name = str.toLowerCase();
+      const arch = /conga|bongo|tom|timbale|djembe|tabla/.test(name) ? (/tom/.test(name) ? 1 : 0)
+        : /block|clave/.test(name) ? 2
+        : /cowbell|agogo|bell/.test(name) ? 3
+        : seed % 4;
+      for (let i = 0; i < data.length; i++) {
+        const t = i / sr;
+        if (arch === 0) {
+          // Skin hit: conga / bongo with a short pitch drop and slap noise
+          const f = pitch * (1 + 0.35 * Math.exp(-t * 60));
+          const body = Math.sin(2 * Math.PI * f * t) * Math.exp(-t * 14);
+          const slap = (Math.random() * 2 - 1) * Math.exp(-t * 90) * 0.35;
+          data[i] = Math.tanh((body + slap) * 1.2) * 0.86;
+        } else if (arch === 1) {
+          // Floor tom: deeper drop, longer ring
+          const f = pitch * 0.6 * (1 + 0.6 * Math.exp(-t * 28));
+          const body = Math.sin(2 * Math.PI * f * t) * Math.exp(-t * 6.5);
+          const stick = (Math.random() * 2 - 1) * Math.exp(-t * 70) * 0.25;
+          data[i] = Math.tanh((body + stick) * 1.3) * 0.88;
+        } else if (arch === 2) {
+          // Wood block / clave: bright, very short
+          const f = Math.max(pitch, 700);
+          const tone = Math.sin(2 * Math.PI * f * t) + Math.sin(2 * Math.PI * f * 2.7 * t) * 0.3;
+          data[i] = tone * Math.exp(-t * 48) * 0.82;
+        } else {
+          // Cowbell / agogo: two detuned square partials through a fast decay
+          const f1 = Math.max(pitch, 480);
+          const f2 = f1 * 1.48;
+          const sq = (f: number) => (Math.sin(2 * Math.PI * f * t) >= 0 ? 1 : -1);
+          data[i] = (sq(f1) * 0.5 + sq(f2) * 0.35) * Math.exp(-t * 11) * 0.55;
         }
       }
     } else if (role === 'Tonal/Melodic') {

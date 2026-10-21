@@ -3,6 +3,7 @@ import type { AcousticProfile, SampleRole } from '../types/index.ts';
 const KICK_REGEX = /\b(kick|kik|bd|bassdrum|sub|808_?kick|foot)\b/i;
 const SNARE_REGEX = /\b(snare|snr|sd|clap|clp|rim|rimshot|snap|crossstick)\b/i;
 const HAT_REGEX = /\b(hat|hh|hihat|hi-?hat|open-?hat|closed-?hat|oh|ch|cymbal|cymb|ride|crash|shaker|tamb|tambourine)\b/i;
+const PERC_REGEX = /\b(perc|percs|percussion|conga|congas|bongo|bongos|tom|toms|timbale|timbales|woodblock|wood ?block|block|cowbell|clave|claves|agogo|guiro|cabasa|djembe|tabla|cajon|triangle|shekere|cuica|surdo|hand ?drum)\b/i;
 const TONAL_REGEX = /\b(synth|lead|melody|chord|pad|key|keys|piano|pluck|rhodes|bass|bassline|flute|guitar|harp|organ|sax|trumpet|horn|vocal|vox|acapella|adlib|tonal|root|arp)\b/i;
 const TEXTURE_REGEX = /\b(fx|foley|sweep|riser|fall|downlifter|uplifter|noise|vinyl|ambient|atmo|atmosphere|texture|scratch|drone|glitch|impact|whoosh)\b/i;
 
@@ -46,12 +47,14 @@ export function classifySampleRole(
   const hasKickName = KICK_REGEX.test(cleanName);
   const hasSnareName = SNARE_REGEX.test(cleanName);
   const hasHatName = HAT_REGEX.test(cleanName);
+  const hasPercName = PERC_REGEX.test(cleanName);
   const hasTonalName = TONAL_REGEX.test(cleanName);
   const hasTextureName = TEXTURE_REGEX.test(cleanName);
 
   if (hasKickName) tags.push('kick-cue');
   if (hasSnareName) tags.push('snare-cue');
   if (hasHatName) tags.push('hat-cue');
+  if (hasPercName) tags.push('perc-cue');
   if (hasTonalName) tags.push('tonal-cue');
   if (hasTextureName) tags.push('texture-cue');
 
@@ -89,6 +92,11 @@ export function classifySampleRole(
     return { role: 'Hat/Air', tags };
   }
 
+  if (hasPercName && duration <= 2.0) {
+    tags.push('perc');
+    return { role: 'Perc/Hit', tags };
+  }
+
   if (hasTextureName) {
     tags.push('texture');
     return { role: 'Texture/Wildcard', tags };
@@ -105,6 +113,12 @@ export function classifySampleRole(
   if (high >= 0.42 && low <= 0.18) {
     tags.push('acoustic-hat');
     return { role: 'Hat/Air', tags };
+  }
+
+  // Perc/Hit: short, sharp, partly pitched hits (congas, blocks, toms, cowbells)
+  if (duration <= 0.8 && transientSharpness >= 55 && pitchConfidence >= 0.45 && low < 0.45 && high < 0.42) {
+    tags.push('acoustic-perc');
+    return { role: 'Perc/Hit', tags };
   }
 
   // Snare/Snap: Strong mid energy, high transient sharpness, short decay

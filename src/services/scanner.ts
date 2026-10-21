@@ -37,6 +37,13 @@ export class ScannerService {
 
     // Must be invoked from user gesture
     const handle = await (window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker();
+    return this.addFolderHandle(handle, pathPrefix);
+  }
+
+  /**
+   * Register a folder the user picked or dropped onto the page
+   */
+  async addFolderHandle(handle: FileSystemDirectoryHandle, pathPrefix?: string): Promise<FolderSource> {
     const folderId = 'folder_' + Math.random().toString(36).substring(2, 9);
     
     const folder: FolderSource = {

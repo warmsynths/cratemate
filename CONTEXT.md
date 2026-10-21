@@ -33,13 +33,14 @@ Quantitative metrics extracted by decoding the sample:
 The operational drum/beat kit category assigned to a sample:
 - `Kick/Low`: Low-frequency dominant ($> 45\%$ low energy), punchy or sub-heavy attack.
 - `Snare/Snap`: Mid-frequency burst ($250\text{ Hz} - 4000\text{ Hz}$), sharp transient, short-to-medium decay.
-- `Hat/Air`: High-frequency dominant ($> 45\%$ high energy), crisp attack or sizzle.
+- `Hat/Air`: High-frequency dominant ($> 45\%$ high energy), crisp attack or sizzle. Shown as Closed HH or Open HH depending on the pad's layout slot or the sample's name and tail length.
+- `Perc/Hit`: Hand and tuned percussion (congas, bongos, toms, blocks, cowbells, claves): short, sharp, partly pitched hits.
 - `Tonal/Melodic`: Periodic pitch detected with high confidence (basslines, leads, chords, melodic vocal chops).
 - `Texture/Wildcard`: Atmos, vinyl noise, Foley, experimental hits, long soundscapes.
 
 ### Kit
-A curated collection of 4, 6, or 8 complementary Pad Slots structured to create an immediately playable beat palette.
-- **Pad Count**: 4, 6, or 8 pads.
+A curated collection of 4, 6, 8, 12 or 16 complementary Pad Slots structured to create an immediately playable beat palette.
+- **Pad Count**: 4, 6, 8, 12 or 16 pads. The mix of sound types comes from the kit recipe, or from a pad layout such as the SP-404MKII right-hand drums layout (16 pads, with ghost pads).
 - **Cohesion Constraint**: Avoids redundant roles (e.g. max 1 Kick, max 1 Snare in small kits; balanced distribution across roles).
 - **Harmonic Compatibility**: If one or more melodic samples are selected with detected musical keys, other melodic selections are harmonically biased using the Circle of Fifths / Camelot Wheel (same key, adjacent keys $\pm 1$, or relative major/minor).
 
@@ -66,7 +67,7 @@ The technical and structural formatting specification tailored to a specific Har
 ### Sample Chain
 A single contiguous linear PCM WAV file containing all samples of a Kit concatenated at uniform time slice intervals.
 - **Equal-Division Slices**: Uniform slice length (longest sample rounded up to power-of-two or beat interval) allowing hardware slice engines to access all kit sounds via slice indices without requiring separate tracks or instrument slots.
-- **Slice Count**: Matches kit pad count (e.g. 4, 6, or 8 slices).
+- **Slice Count**: 4 slices for 4-pad kits, 8 for 6 or 8 pads, 16 for bigger kits.
 
 ### Kit Companion
 A plain-text quick-reference file (`KIT_INFO.txt`) packaged alongside samples containing musical and operational kit metadata:

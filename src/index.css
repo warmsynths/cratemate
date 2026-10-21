@@ -1,31 +1,10 @@
-:root {
-  color-scheme: light dark;
-  --chassis-bg: #bfc0ba;
-  --chassis-top: #dcddd7;
-  --chassis-mid: #cdcec8;
-  --chassis-bottom: #c2c3bd;
-  --text-dark: #25261f;
-  --text-muted: #4c4d44;
-  --bezel-dark: #272c33;
-  --bezel-mid: #3a4049;
-  --lcd-bg: #8f9e6a;
-  --lcd-ink: #1e2417;
-  --lcd-border: rgba(30, 36, 23, 0.35);
-  --bone-top: #f0e9ca;
-  --bone-bottom: #ddd3ad;
-  --bone-edge: #6f6a55;
-  --keypad-top: #3f7bd6;
-  --keypad-bottom: #1e4f9e;
-  --transport-top: #cf4436;
-  --transport-bottom: #a92e23;
-  --alert-top: #f79420;
-  --alert-bottom: #e07a0c;
-  --legend-plate: #b7c3c7;
-  --legend-edge: #8b989c;
-}
-
 * {
   box-sizing: border-box;
+  scrollbar-width: none;
+}
+
+*::-webkit-scrollbar {
+  display: none;
 }
 
 html, body {
@@ -34,55 +13,16 @@ html, body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: var(--chassis-bg);
-  color: var(--text-dark);
-  font-family: 'Barlow', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #f1e8d6;
+  color: #3b2e25;
+  font-family: 'Figtree', system-ui, -apple-system, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-a {
-  color: #c1382c;
-  text-decoration: none;
-}
+a { color: #a6522f; }
+a:hover { color: #7d3b20; }
 
-a:hover {
-  color: #d4503f;
-}
-
-@media (max-width: 559px) {
-  html, body {
-    height: auto;
-    overflow-y: auto;
-  }
-}
-
-/* Authentic Hardware Animations */
-@keyframes dealA { from { opacity: 0; } to { opacity: 1; } }
-@keyframes dealB { from { opacity: 0; } to { opacity: 1; } }
-@keyframes lampA { 0% { opacity: 1; } 100% { opacity: 0.25; } }
-@keyframes lampB { 0% { opacity: 1; } 100% { opacity: 0.25; } }
-@keyframes bayUp { from { transform: translateY(102%); } to { transform: translateY(0); } }
-@keyframes diskIn { from { transform: translateY(26px) scale(0.985); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
-@keyframes diskLed { 0%, 55% { background: #7a2a1d; box-shadow: none; } 70%, 100% { background: #ff9a3c; box-shadow: 0 0 7px rgba(255, 154, 60, 0.9); } }
-@keyframes sweepA { from { left: 0%; } to { left: 100%; } }
-@keyframes sweepB { from { left: 0%; } to { left: 100%; } }
-
-/* Scrollbars */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.08);
-}
-
-::-webkit-scrollbar-thumb {
-  background: #8b989c;
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #6f7c80;
+crate-mate-app {
+  display: flex;
 }

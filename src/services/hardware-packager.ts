@@ -47,8 +47,8 @@ export class HardwarePackagerService {
       throw new Error('No audio buffers available to generate sample chain');
     }
 
-    // Number of slices: 4 for 4-pad kits, 8 for 6 or 8 pad kits
-    const numSlices = sliceCount ?? (padCount === 4 ? 4 : 8);
+    // Number of slices: 4 for 4-pad kits, 8 for 6 or 8 pad kits, 16 for bigger kits
+    const numSlices = sliceCount ?? (padCount <= 4 ? 4 : padCount <= 8 ? 8 : 16);
 
     // Determine max duration with 50ms safety decay buffer
     let maxDuration = 0;
@@ -414,7 +414,7 @@ Exported with CrateMate • Local-First Sample Curation
       zip.addFile(file.relativePath, file.data);
     }
 
-    const targetSuffix = options.target === 'm8' ? 'M8' : options.target === 'sp404mk2' ? 'SP404MK2' : 'Dual';
+    const targetSuffix = { m8: 'M8', sp404mk2: 'SP404MK2', po33: 'PO33', universal: 'WAV', dual: 'Dual' }[options.target];
     const zipName = `${this.sanitizeName(kit.name)}_${targetSuffix}.zip`;
 
     onProgress?.(`Triggering download for ${zipName}...`);

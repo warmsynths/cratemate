@@ -13,6 +13,11 @@ export const FACTORY_ROLE_TEMPLATES: Record<PadCount, SampleRole[]> = {
     'Texture/Wildcard',
     'Texture/Wildcard'
   ],
+  12: [
+    'Kick/Low', 'Snare/Snap', 'Hat/Air', 'Hat/Air',
+    'Kick/Low', 'Snare/Snap', 'Perc/Hit', 'Perc/Hit',
+    'Tonal/Melodic', 'Tonal/Melodic', 'Tonal/Melodic', 'Texture/Wildcard'
+  ],
   16: [
     'Kick/Low', 'Snare/Snap', 'Hat/Air', 'Tonal/Melodic',
     'Hat/Air', 'Snare/Snap', 'Tonal/Melodic', 'Texture/Wildcard',
@@ -68,6 +73,13 @@ export const FACTORY_PRESETS: KitPreset[] = [
           preferredBand: 'high',
           minBandEnergy: 0.35,
           keywords: ['hat', 'hihat', 'ch', 'oh', 'shaker']
+        },
+        'Perc/Hit': {
+          durationMin: 0.04,
+          durationMax: 1.2,
+          sharpnessTarget: 'punchy',
+          preferredBand: 'mid',
+          keywords: ['perc', 'conga', 'bongo', 'tom', 'block', 'cowbell', 'clave']
         },
         'Tonal/Melodic': {
           durationMin: 0.40,
