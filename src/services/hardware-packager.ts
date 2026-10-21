@@ -3,6 +3,7 @@ import { encodeWav, resampleAudioBuffer, normalizeAudioBuffer } from './wav-enco
 import { ZipBuilder } from './zip.ts';
 import { scanner } from './scanner.ts';
 import { audioEngine } from './audio-engine.ts';
+import { getLayout, spPadNumber } from './layouts.ts';
 
 export class HardwarePackagerService {
   /**
@@ -39,14 +40,15 @@ export class HardwarePackagerService {
   async generateSampleChainBuffer(
     buffers: AudioBuffer[],
     padCount: number,
-    targetSampleRate: number
+    targetSampleRate: number,
+    sliceCount?: number
   ): Promise<AudioBuffer> {
     if (buffers.length === 0) {
       throw new Error('No audio buffers available to generate sample chain');
     }
 
     // Number of slices: 4 for 4-pad kits, 8 for 6 or 8 pad kits
-    const numSlices = padCount === 4 ? 4 : 8;
+    const numSlices = sliceCount ?? (padCount === 4 ? 4 : 8);
 
     // Determine max duration with 50ms safety decay buffer
     let maxDuration = 0;
@@ -105,17 +107,18 @@ export class HardwarePackagerService {
       suggestedBpm = '124 - 128 BPM';
     }
 
+    const layout = getLayout(kit.layoutId);
     let padRows = '';
     kit.pads.forEach((pad, idx) => {
       const padNum2 = String(idx + 1).padStart(2, '0');
-      const spPad = `A${padNum2}`;
+      const spPad = `A${String(layout?.spNumbered ? spPadNumber(idx) : idx + 1).padStart(2, '0')}`;
       const sample = pad.sample;
       if (!sample) {
         padRows += `[Track ${padNum2} / ${spPad}] Empty Pad\n\n`;
         return;
       }
 
-      const role = sample.role;
+      const role = pad.label ? `${pad.label} (${sample.role})` : sample.role;
       const dur = sample.acousticProfile.duration.toFixed(2) + 's';
       const sharp = Math.round(sample.acousticProfile.transientSharpness);
       const note = sample.acousticProfile.rootKey ? `${sample.acousticProfile.rootKey} (${sample.acousticProfile.camelotKey || ''})` : 'Percussive';
@@ -136,6 +139,7 @@ Pad Count:       ${kit.padCount} Pads
 Harmonic Key:    ${camelot} (${key})
 Suggested BPM:   ${suggestedBpm}
 Style Preset:    ${kit.presetName || 'CrateMate Custom'}
+Pad Layout:      ${layout ? layout.name : 'Standard'}
 
 ------------------------------------------------------------
 PAD & TRACK ASSIGNMENTS
@@ -261,16 +265,28 @@ Exported with CrateMate • Local-First Sample Curation
       });
     }
 
+    const layout = getLayout(kit.layoutId);
+
     // Process audio per target
     for (const t of targets) {
       onProgress?.(`Processing audio for ${t.label}...`);
 
       const processedBuffers: AudioBuffer[] = [];
 
-      for (let i = 0; i < validPads.length; i++) {
-        const pad = validPads[i];
+      // Layout kits: the SP-404MKII keeps its physical pad positions; other devices get drums first
+      const spByPosition = !!layout?.spNumbered && t.id === 'sp404mk2';
+      const orderedPads = !layout
+        ? validPads
+        : spByPosition
+          ? [...validPads].sort((a, b) => spPadNumber(a.index) - spPadNumber(b.index))
+          : layout.exportOrder.map(idx => validPads.find(p => p.index === idx)).filter((p): p is typeof validPads[number] => !!p);
+
+      // Pass 1: render pad FX and resample
+      const rendered: Array<{ pad: typeof validPads[number]; buffer: AudioBuffer }> = [];
+      for (let i = 0; i < orderedPads.length; i++) {
+        const pad = orderedPads[i];
         const sample = pad.sample!;
-        onProgress?.(`Processing sample ${i + 1}/${validPads.length}: ${sample.fileName}`);
+        onProgress?.(`Processing sample ${i + 1}/${orderedPads.length}: ${sample.fileName}`);
 
         let rawBuffer = await this.getAudioBufferForSample(sample);
         if (!rawBuffer) continue;
@@ -286,15 +302,25 @@ Exported with CrateMate • Local-First Sample Curation
           finalBuffer = await resampleAudioBuffer(finalBuffer, t.sampleRate);
         }
 
+        rendered.push({ pad, buffer: finalBuffer });
+      }
+
+      // Pass 2: normalize, name and encode. A ghost takes its gain from its main pad so it stays softer.
+      for (let i = 0; i < rendered.length; i++) {
+        const { pad } = rendered[i];
+        const sample = pad.sample!;
+        let finalBuffer = rendered[i].buffer;
+
         if (options.normalizeAudio) {
-          finalBuffer = normalizeAudioBuffer(finalBuffer, -0.5);
+          const main = pad.ghostOf !== undefined ? rendered.find(r => r.pad.index === pad.ghostOf) : undefined;
+          finalBuffer = normalizeAudioBuffer(finalBuffer, -0.5, main?.buffer);
         }
 
         processedBuffers.push(finalBuffer);
 
         // Discrete file naming
-        const prefix = t.prefixFn(i);
-        const safeRole = sample.role.replace('/', '_');
+        const prefix = spByPosition ? `A${String(spPadNumber(pad.index)).padStart(2, '0')}` : t.prefixFn(i);
+        const safeRole = (pad.label ? pad.label.toLowerCase().replace(/\s+/g, '-') : sample.role.replace('/', '_'));
         const keyTag = sample.acousticProfile.camelotKey ? `_${sample.acousticProfile.camelotKey}` : '';
         const baseName = sample.fileName.replace(/\.[^/.]+$/, '');
         const filename = `${prefix}_${safeRole}${keyTag}_${baseName}.wav`;
@@ -312,7 +338,8 @@ Exported with CrateMate • Local-First Sample Curation
         const chainBuffer = await this.generateSampleChainBuffer(
           processedBuffers,
           kit.padCount,
-          options.convertToHardwareSpec ? t.sampleRate : (processedBuffers[0]?.sampleRate || 44100)
+          options.convertToHardwareSpec ? t.sampleRate : (processedBuffers[0]?.sampleRate || 44100),
+          spByPosition ? 16 : undefined
         );
         const chainBytes = encodeWav(chainBuffer);
         entries.push({

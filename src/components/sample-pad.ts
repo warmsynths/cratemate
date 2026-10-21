@@ -1,6 +1,7 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import type { PadSlot, SampleRole, AcousticProfile } from '../types/index.ts';
+import { padDisplayNumber } from '../services/layouts.ts';
 
 const SHORT_ROLES: Record<SampleRole, string> = {
   'Kick/Low': 'LOW',
@@ -22,6 +23,7 @@ const ROLE_HUES: Record<SampleRole, string> = {
 export class SamplePad extends LitElement {
   @property({ type: Object }) slotData?: PadSlot;
   @property({ type: Number }) padIndex = 0;
+  @property({ type: Boolean }) spNumbered = false;
   @property({ type: Boolean }) isOff = false;
   @property({ type: Boolean }) isFresh = false;
   @property({ type: String }) pathPrefix = '';
@@ -85,6 +87,10 @@ export class SamplePad extends LitElement {
       letter-spacing: 1.2px;
       color: #3c3d35;
       margin-left: auto;
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     /* Rubber pad */
@@ -352,7 +358,7 @@ export class SamplePad extends LitElement {
   }
 
   render() {
-    const padNumberStr = String(this.padIndex + 1).padStart(2, '0');
+    const padNumberStr = padDisplayNumber(this.padIndex, this.spNumbered);
 
     // Truly OFF pads (beyond current active pad count)
     if (this.isOff) {
@@ -382,7 +388,7 @@ export class SamplePad extends LitElement {
     const sample = slot?.sample;
     const role = slot?.role || (this.padIndex % 4 === 0 ? 'Kick/Low' : this.padIndex % 4 === 1 ? 'Snare/Snap' : this.padIndex % 4 === 2 ? 'Hat/Air' : 'Tonal/Melodic');
     const roleHue = ROLE_HUES[role] || '#3667b8';
-    const roleShort = SHORT_ROLES[role] || 'ROLE';
+    const roleShort = slot?.label || SHORT_ROLES[role] || 'ROLE';
 
     const profile = sample?.acousticProfile;
     const keyStr = profile?.rootKey || profile?.camelotKey || '';

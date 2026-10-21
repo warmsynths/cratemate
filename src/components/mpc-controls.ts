@@ -2,6 +2,7 @@ import { LitElement, html, css } from 'lit';
 import { customElement, property, state, query } from 'lit/decorators.js';
 import type { PadCount, PadSlot, SliderMode } from '../types/index.ts';
 import type { LcdScreen } from './mpc-lcd.ts';
+import { padDisplayNumber } from '../services/layouts.ts';
 
 export interface SliderModeConfig {
   k: SliderMode;
@@ -26,6 +27,7 @@ export const SLIDER_MODES: SliderModeConfig[] = [
 @customElement('mpc-controls')
 export class MpcControls extends LitElement {
   @property({ type: Number }) padCount: PadCount = 8;
+  @property({ type: Boolean }) spNumbered = false;
   @property({ type: String }) currentScreen: LcdScreen = 'MAIN';
   @property({ type: Number }) volume = 0.9;
   @property({ type: Boolean }) canUndo = false;
@@ -800,7 +802,7 @@ export class MpcControls extends LitElement {
       { id: 'INFO', tag: '3', name: 'PAD INFO' }
     ];
 
-    const targetLabel = this.activePadIndex !== null ? `PAD ${String(this.activePadIndex + 1).padStart(2, '0')}` : 'ALL PADS';
+    const targetLabel = this.activePadIndex !== null ? `PAD ${padDisplayNumber(this.activePadIndex, this.spNumbered)}` : 'ALL PADS';
 
     const emit = (name: string) => this.dispatchEvent(new CustomEvent(name, { bubbles: true, composed: true }));
     const tickCount = 11;

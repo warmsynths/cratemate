@@ -63,10 +63,15 @@ export interface FolderSource {
   lastScannedAt?: number;
 }
 
+export type HatKind = 'closed' | 'open';
+
 export interface PadSlot {
   index: number; // 0-indexed
   keybind: string; // e.g. "1" or "Q"
   role: SampleRole;
+  hat?: HatKind; // layout-driven constraint for Hat/Air pads
+  ghostOf?: number; // index of the main pad this pad mirrors at reduced level
+  label?: string; // layout caption shown on the pad (e.g. "GHOST KICK")
   sample?: SampleRecord;
   locked: boolean;
   isPlaying: boolean;
@@ -110,6 +115,21 @@ export interface AcousticCriteria {
   packAffinityEnabled?: boolean; // bias towards same pack/recording session
 }
 
+export interface LayoutSlot {
+  role: SampleRole;
+  hat?: HatKind;
+  ghostOf?: number; // this slot is a softer copy of the slot at this index
+}
+
+export interface PadLayout {
+  id: string;
+  name: string;
+  description: string;
+  slots: LayoutSlot[]; // 16 entries, index 0 = bottom-left pad, 15 = top-right
+  exportOrder: number[]; // pad indices in the order non-finger-drum devices should receive them
+  spNumbered: boolean; // SP-404MKII pad numbers apply (top-left = 1)
+}
+
 export interface KitPreset {
   id: string;
   name: string;
@@ -129,6 +149,7 @@ export interface Kit {
   generatedAt: number;
   presetId?: string;
   presetName?: string;
+  layoutId?: string; // pad layout this kit was built against (16-pad kits only)
   criteria?: AcousticCriteria;
   fallbackNotices?: string[];
   roleMix?: Partial<Record<SampleRole, number>>;

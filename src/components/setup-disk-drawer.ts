@@ -1,6 +1,6 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import type { Kit, KitPreset, FolderSource, AcousticCriteria, HardwareTarget, HardwareExportOptions } from '../types/index.ts';
+import type { Kit, KitPreset, FolderSource, AcousticCriteria, HardwareTarget, HardwareExportOptions, PadLayout, SampleRole } from '../types/index.ts';
 import { hardwarePackager } from '../services/hardware-packager.ts';
 import { scanner } from '../services/scanner.ts';
 import { 
@@ -11,12 +11,22 @@ import {
   type MusicalScale 
 } from '../services/musical-keys.ts';
 
+const LAYOUT_ROLE_COLORS: Record<SampleRole, string> = {
+  'Kick/Low': '#c1382c',
+  'Snare/Snap': '#3667b8',
+  'Hat/Air': '#6f8036',
+  'Tonal/Melodic': '#2b3037',
+  'Texture/Wildcard': '#a9521a'
+};
+
 @customElement('setup-disk-drawer')
 export class SetupDiskDrawer extends LitElement {
   @property({ type: Boolean }) isOpen = false;
   @property({ type: Object }) kit?: Kit;
   @property({ type: Array }) presets: KitPreset[] = [];
   @property({ type: String }) activePresetId = 'standard';
+  @property({ type: Array }) layouts: PadLayout[] = [];
+  @property({ type: String }) activeLayoutId = 'none';
   @property({ type: Array }) folders: FolderSource[] = [];
   @property({ type: Object }) criteria: AcousticCriteria = {};
   @property({ type: Boolean }) stickers = false;
@@ -411,6 +421,32 @@ export class SetupDiskDrawer extends LitElement {
       outline: none;
     }
 
+    .layout-hint {
+      margin-left: 8px;
+      font-weight: 500;
+      letter-spacing: 1px;
+      opacity: 0.6;
+    }
+    .layout-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .layout-preview {
+      display: grid;
+      grid-template-columns: repeat(4, 8px);
+      gap: 2px;
+      flex: 0 0 auto;
+    }
+    .layout-preview i {
+      width: 8px;
+      height: 8px;
+      border-radius: 1px;
+      display: block;
+    }
+    .layout-preview i.ghost { opacity: 0.45; }
+
     .preset-item-btn:hover {
       background: #f0e9cd;
     }
@@ -696,6 +732,14 @@ export class SetupDiskDrawer extends LitElement {
     }));
   }
 
+  private handleSelectLayout(id: string) {
+    this.dispatchEvent(new CustomEvent('select-layout', {
+      detail: { layoutId: id },
+      bubbles: true,
+      composed: true
+    }));
+  }
+
   private async handleAddFolder() {
     try {
       const folder = await scanner.pickAndAddFolder();
@@ -903,6 +947,30 @@ export class SetupDiskDrawer extends LitElement {
                 @click=${() => this.handleSelectPreset(p.id)}
               >
                 ${p.name}
+              </button>
+            `)}
+          </div>
+
+          <div class="section-title">PAD LAYOUT <span class="layout-hint">16-PAD KITS</span></div>
+          <div class="preset-list">
+            <button
+              class="preset-item-btn ${this.activeLayoutId === 'none' ? 'selected' : ''}"
+              @click=${() => this.handleSelectLayout('none')}
+            >
+              Standard (by pad count)
+            </button>
+            ${this.layouts.map(l => html`
+              <button
+                class="preset-item-btn layout-item ${l.id === this.activeLayoutId ? 'selected' : ''}"
+                title=${l.description}
+                @click=${() => this.handleSelectLayout(l.id)}
+              >
+                <span class="layout-name">${l.name}</span>
+                <span class="layout-preview" aria-hidden="true">
+                  ${[12, 13, 14, 15, 8, 9, 10, 11, 4, 5, 6, 7, 0, 1, 2, 3].map(i => html`
+                    <i class="${l.slots[i].ghostOf !== undefined ? 'ghost' : ''}" style="background: ${LAYOUT_ROLE_COLORS[l.slots[i].role]}"></i>
+                  `)}
+                </span>
               </button>
             `)}
           </div>

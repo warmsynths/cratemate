@@ -6,7 +6,8 @@ import {
   getHarmonicMatches, 
   calculateSemitoneShift 
 } from './musical-keys.ts';
-import type { AcousticCriteria, Kit, PadCount, PadSlot, SampleRecord, SampleRole } from '../types/index.ts';
+import { GHOST_LEVEL, classifyHat, layoutSlotLabel } from './layouts.ts';
+import type { AcousticCriteria, HatKind, Kit, PadCount, PadLayout, PadSlot, SampleRecord, SampleRole } from '../types/index.ts';
 
 const QWERTY_KEYS_16 = ['1', '2', '3', '4', 'Q', 'W', 'E', 'R', 'A', 'S', 'D', 'F', 'Z', 'X', 'C', 'V'];
 const NUMBER_KEYS_16 = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', 'A', 'B', 'C', 'D'];
@@ -317,7 +318,8 @@ export class KitGeneratorService {
     rerollAll = false,
     presetId = DEFAULT_PRESET_ID,
     customCriteria?: AcousticCriteria,
-    customRoleMix?: Partial<Record<SampleRole, number>>
+    customRoleMix?: Partial<Record<SampleRole, number>>,
+    layout?: PadLayout
   ): Promise<Kit> {
     const allSamples = await storage.getAllSamples();
     const customPresets = await storage.getCustomPresets();
@@ -326,9 +328,14 @@ export class KitGeneratorService {
 
     const criteria = mergeCriteria(activePreset.criteria, customCriteria);
     
-    // Build active role sequence from customRoleMix or factory template
+    // A layout only applies to full 16-pad kits and takes precedence over the LCD role mix
+    const activeLayout = layout && padCount === 16 ? layout : undefined;
+
+    // Build active role sequence from the layout, customRoleMix or factory template
     let roleTemplate: SampleRole[] = [];
-    if (customRoleMix) {
+    if (activeLayout) {
+      roleTemplate = activeLayout.slots.map(s => s.role);
+    } else if (customRoleMix) {
       for (const [role, count] of Object.entries(customRoleMix) as [SampleRole, number][]) {
         for (let c = 0; c < count; c++) {
           roleTemplate.push(role);
@@ -366,11 +373,15 @@ export class KitGeneratorService {
     for (let i = 0; i < padCount; i++) {
       const keybind = `${QWERTY_KEYS_16[i] || (i + 1)} / ${NUMBER_KEYS_16[i] || (i + 1)}`;
       if (existingKit && !rerollAll && existingKit.pads[i] && existingKit.pads[i].locked && existingKit.pads[i].sample) {
-        const lockedSlot = {
+        const layoutSlot = activeLayout?.slots[i];
+        const lockedSlot: PadSlot = {
           ...existingKit.pads[i],
           index: i,
           keybind,
-          isPlaying: false
+          isPlaying: false,
+          hat: layoutSlot?.hat,
+          ghostOf: layoutSlot?.ghostOf,
+          label: layoutSlot ? layoutSlotLabel(layoutSlot) : undefined
         };
         pads.push(lockedSlot);
         if (lockedSlot.sample) {
@@ -385,8 +396,14 @@ export class KitGeneratorService {
         continue;
       }
 
+      const layoutSlot = activeLayout?.slots[i];
+      // Ghost pads are copied from their main pad once all mains are picked
+      if (layoutSlot?.ghostOf !== undefined) {
+        continue;
+      }
+
       let targetRole = roleTemplate[i] || 'Texture/Wildcard';
-      if (existingKit && existingKit.pads[i] && !rerollAll && !customRoleMix) {
+      if (!activeLayout && existingKit && existingKit.pads[i] && !rerollAll && !customRoleMix) {
         targetRole = existingKit.pads[i].role;
       }
 
@@ -399,7 +416,9 @@ export class KitGeneratorService {
         dominantCamelotKey,
         alreadyPickedIds,
         i,
-        pads
+        pads,
+        undefined,
+        layoutSlot?.hat
       );
 
       if (notice) {
@@ -432,11 +451,34 @@ export class KitGeneratorService {
         index: i,
         keybind,
         role: targetRole,
+        hat: layoutSlot?.hat,
+        label: layoutSlot ? layoutSlotLabel(layoutSlot) : undefined,
         sample: selectedSample,
         locked: false,
         isPlaying: false,
         fx: slotFx
       });
+    }
+
+    // Ghost pass: softer copies of their main pads
+    if (activeLayout) {
+      activeLayout.slots.forEach((layoutSlot, i) => {
+        if (layoutSlot.ghostOf === undefined || pads.some(p => p.index === i)) return;
+        const keybind = `${QWERTY_KEYS_16[i] || (i + 1)} / ${NUMBER_KEYS_16[i] || (i + 1)}`;
+        const previous = existingKit && !rerollAll ? existingKit.pads[i] : undefined;
+        pads.push({
+          index: i,
+          keybind,
+          role: layoutSlot.role,
+          hat: layoutSlot.hat,
+          ghostOf: layoutSlot.ghostOf,
+          label: layoutSlotLabel(layoutSlot),
+          locked: false,
+          isPlaying: false,
+          fx: previous?.ghostOf !== undefined ? previous.fx : undefined
+        });
+      });
+      this.syncGhosts(pads);
     }
 
     // Third pass: ensure all 16 slots exist in pads so inactive rows render cleanly as OFF rubber pads
@@ -476,8 +518,9 @@ export class KitGeneratorService {
       generatedAt: Date.now(),
       presetId: activePreset.id,
       presetName: activePreset.name,
+      layoutId: activeLayout?.id,
       criteria,
-      roleMix: customRoleMix,
+      roleMix: activeLayout ? undefined : customRoleMix,
       fallbackNotices: fallbackNotices.length > 0 ? fallbackNotices : undefined
     };
 
@@ -493,6 +536,15 @@ export class KitGeneratorService {
     const effectiveCriteria = criteria || currentKit.criteria || FACTORY_PRESETS[0].criteria;
     const targetSlot = currentKit.pads[padIndex];
     if (!targetSlot) return currentKit;
+
+    // A ghost has no sample of its own: respinning it just re-copies its main pad
+    if (targetSlot.ghostOf !== undefined) {
+      const synced = currentKit.pads.map(p => ({ ...p }));
+      this.syncGhosts(synced);
+      const kit: Kit = { ...currentKit, pads: synced, generatedAt: Date.now() };
+      await storage.saveActiveKit(kit);
+      return kit;
+    }
 
     const alreadyPickedIds = new Set<string>();
     currentKit.pads
@@ -514,7 +566,8 @@ export class KitGeneratorService {
       alreadyPickedIds,
       padIndex,
       otherPads,
-      avoidFileName
+      avoidFileName,
+      targetSlot.hat
     );
 
     const updatedPads = currentKit.pads.map((p, idx) => {
@@ -525,8 +578,9 @@ export class KitGeneratorService {
           isPlaying: false
         };
       }
-      return p;
+      return { ...p };
     });
+    this.syncGhosts(updatedPads);
 
     const notices = currentKit.fallbackNotices ? [...currentKit.fallbackNotices] : [];
     if (notice) notices.push(notice);
@@ -577,12 +631,16 @@ export class KitGeneratorService {
         return {
           ...p,
           role: newRole,
+          hat: undefined,
+          ghostOf: undefined,
+          label: undefined,
           sample: newSample,
           isPlaying: false
         };
       }
-      return p;
+      return { ...p };
     });
+    this.syncGhosts(updatedPads);
 
     const notices = currentKit.fallbackNotices ? [...currentKit.fallbackNotices] : [];
     if (notice) notices.push(notice);
@@ -599,6 +657,19 @@ export class KitGeneratorService {
   }
 
   /**
+   * Make every unlocked ghost pad a softer copy of its main pad (mutates `pads`).
+   * Level is the only thing that changes; any other tweak on the ghost pad is kept.
+   */
+  private syncGhosts(pads: PadSlot[]): void {
+    for (const pad of pads) {
+      if (pad.ghostOf === undefined || pad.locked) continue;
+      const main = pads.find(p => p.index === pad.ghostOf);
+      pad.sample = main?.sample;
+      pad.fx = { ...main?.fx, level: pad.fx?.level ?? GHOST_LEVEL };
+    }
+  }
+
+  /**
    * Multi-tiered selection engine with progressive relaxation and strict de-duplication
    */
   private selectSampleWithFallback(
@@ -609,15 +680,30 @@ export class KitGeneratorService {
     alreadyPickedIds = new Set<string>(),
     padIndex = 0,
     contextPads: PadSlot[] = [],
-    avoidFileName?: string
+    avoidFileName?: string,
+    hat?: HatKind
   ): { sample: SampleRecord; notice?: string } {
+    // Open hats ring out longer than the usual hat duration bounds allow
+    if (hat === 'open' && targetRole === 'Hat/Air') {
+      const hatProfile = criteria.roleProfiles?.['Hat/Air'];
+      criteria = {
+        ...criteria,
+        roleProfiles: {
+          ...criteria.roleProfiles,
+          'Hat/Air': { ...hatProfile, durationMin: 0.25, durationMax: 1.6 }
+        }
+      };
+    }
+
     const folderFilter = criteria.folderIds && criteria.folderIds.length > 0 ? new Set(criteria.folderIds) : null;
     const effectiveKey = criteria.keyLockMode === 'strict' && criteria.lockedCamelotKey 
       ? criteria.lockedCamelotKey 
       : dominantCamelotKey;
 
     const roleProfile = criteria.roleProfiles?.[targetRole];
-    const roleSamples = allSamples.filter(s => s.role === targetRole);
+    const allRoleSamples = allSamples.filter(s => s.role === targetRole);
+    const hatMatches = hat && targetRole === 'Hat/Air' ? allRoleSamples.filter(s => classifyHat(s) === hat) : allRoleSamples;
+    const roleSamples = hatMatches.length > 0 ? hatMatches : allRoleSamples;
     const isAvail = (s: SampleRecord) => !isSamplePicked(s, alreadyPickedIds, avoidFileName);
 
     // --- TIER 1: Exact Match (Folder + Role + Key + Role-Specific Acoustic Bounds) ---
@@ -682,9 +768,11 @@ export class KitGeneratorService {
     }
 
     // --- TIER 4: Relax Harmonic Key (Any Folder + Role + Any Key) ---
-    const tier4Available = roleSamples.filter(isAvail);
+    const tier4Available = allRoleSamples.filter(isAvail);
     if (tier4Available.length > 0) {
-      const notice = effectiveKey ? `Pad ${padIndex + 1} (${targetRole}): musical key relaxed` : undefined;
+      const notice = hat && hatMatches.length > 0
+        ? `Pad ${padIndex + 1} (${hat} hat): ran out of ${hat} hats, used another hat`
+        : effectiveKey ? `Pad ${padIndex + 1} (${targetRole}): musical key relaxed` : undefined;
       return {
         sample: this.pickBestCandidate(tier4Available, targetRole, criteria, effectiveKey, alreadyPickedIds, contextPads),
         notice
@@ -702,7 +790,7 @@ export class KitGeneratorService {
 
     // --- TIER 6: Factory Demo Sound ---
     return {
-      sample: this.createDemoSample(targetRole, padIndex, effectiveKey, alreadyPickedIds, avoidFileName),
+      sample: this.createDemoSample(targetRole, padIndex, effectiveKey, alreadyPickedIds, avoidFileName, hat),
       notice: allSamples.length > 0 
         ? `Pad ${padIndex + 1} (${targetRole}): filled with factory demo sound` 
         : `Pad ${padIndex + 1} (${targetRole}): factory demo sound`
@@ -745,9 +833,16 @@ export class KitGeneratorService {
     padIndex: number,
     forcedCamelot?: string,
     alreadyPickedIds = new Set<string>(),
-    avoidFileName?: string
+    avoidFileName?: string,
+    hat?: HatKind
   ): SampleRecord {
-    const roleCandidates = FACTORY_DEMO_LIBRARY.filter(s => s.role === role);
+    let roleCandidates = FACTORY_DEMO_LIBRARY.filter(s => s.role === role);
+    if (hat && role === 'Hat/Air') {
+      const hatCandidates = roleCandidates.filter(s => classifyHat({ fileName: s.fileName, relativePath: '', acousticProfile: { duration: s.duration } as SampleRecord['acousticProfile'] }) === hat);
+      if (hatCandidates.some(s => !isSamplePicked(s, alreadyPickedIds, avoidFileName))) {
+        roleCandidates = hatCandidates;
+      }
+    }
     let available: FactoryDemoSound[] = [];
 
     // First attempt: matching role with compatible Camelot key (same, +/-1 step, relative major/minor)

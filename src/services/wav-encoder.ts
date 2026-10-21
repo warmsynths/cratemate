@@ -33,17 +33,20 @@ export async function resampleAudioBuffer(
 /**
  * Apply true-peak normalization to an AudioBuffer.
  * Clones channel data to avoid mutating original source audio.
+ * Pass `gainReference` to derive the gain from another buffer's peak (keeps relative levels, e.g. ghost vs main).
  */
 export function normalizeAudioBuffer(
   buffer: AudioBuffer,
-  targetPeakDbfs: number = -0.5
+  targetPeakDbfs: number = -0.5,
+  gainReference?: AudioBuffer
 ): AudioBuffer {
   const targetPeakLinear = Math.pow(10, targetPeakDbfs / 20); // ~0.94406 for -0.5 dBFS
   let maxPeak = 0;
 
-  // Find highest absolute peak across all channels
-  for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
-    const data = buffer.getChannelData(ch);
+  // Find highest absolute peak across all channels (of the reference buffer when the gain is shared)
+  const peakSource = gainReference ?? buffer;
+  for (let ch = 0; ch < peakSource.numberOfChannels; ch++) {
+    const data = peakSource.getChannelData(ch);
     for (let i = 0; i < data.length; i++) {
       const abs = Math.abs(data[i]);
       if (abs > maxPeak) {

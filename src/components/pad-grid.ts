@@ -23,6 +23,7 @@ export class PadGrid extends LitElement {
   @property({ type: Array }) freshIndices: number[] = [];
   @property({ type: String }) pathPrefix = '';
   @property({ type: Boolean }) stickers = false;
+  @property({ type: Boolean }) spNumbered = false;
   @property({ type: String }) activeDevice = 'sp404mk2';
 
   static styles = css`
@@ -226,6 +227,7 @@ export class PadGrid extends LitElement {
               class=${isLive ? '' : 'off'}
               .slotData=${slot}
               .padIndex=${i}
+              .spNumbered=${this.spNumbered}
               .isOff=${!isLive}
               .isFresh=${isFresh}
               .pathPrefix=${this.pathPrefix}

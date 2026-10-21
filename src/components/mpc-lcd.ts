@@ -1,6 +1,7 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import type { FolderSource, PadSlot, SampleRole } from '../types/index.ts';
+import { padDisplayNumber } from '../services/layouts.ts';
 
 export type LcdScreen = 'MAIN' | 'INFO' | 'SOURCES';
 
@@ -35,6 +36,7 @@ export class MpcLcd extends LitElement {
   @property({ type: Array }) folders: FolderSource[] = [];
   @property({ type: Number }) folderCursor = 0;
   @property({ type: Object }) roleMix: Partial<Record<SampleRole, number>> = {};
+  @property({ type: Boolean }) spNumbered = false;
   @property({ type: Boolean }) stickers = false;
 
   @state() private mixCursor = 0;
@@ -696,7 +698,7 @@ export class MpcLcd extends LitElement {
     }
 
     const sample = slot.sample;
-    const padStr = this.activePadIndex !== null ? `PAD ${String(this.activePadIndex + 1).padStart(2, '0')}` : 'PAD';
+    const padStr = this.activePadIndex !== null ? `PAD ${padDisplayNumber(this.activePadIndex, this.spNumbered)}` : 'PAD';
     const profile = sample.acousticProfile;
     const durStr = profile?.duration ? `${profile.duration.toFixed(2)}s` : '—';
     const keyStr = profile?.rootKey ? `KEY ${profile.rootKey}` : profile?.camelotKey ? `KEY ${profile.camelotKey}` : 'KEY —';

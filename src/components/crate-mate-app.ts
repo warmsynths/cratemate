@@ -5,6 +5,7 @@ import { scanner } from '../services/scanner.ts';
 import { audioEngine } from '../services/audio-engine.ts';
 import { kitGenerator } from '../services/kit-generator.ts';
 import { FACTORY_PRESETS, DEFAULT_PRESET_ID } from '../services/presets.ts';
+import { PAD_LAYOUTS, DEFAULT_LAYOUT_ID, NO_LAYOUT_ID, getLayout, layoutRoleMix, padDisplayNumber } from '../services/layouts.ts';
 import { SLIDER_MODES } from './mpc-controls.ts';
 import type { 
   AcousticCriteria, 
@@ -46,6 +47,7 @@ export class CrateMateApp extends LitElement {
   @state() private serialNumber = 1;
   @state() private sliderMode: SliderMode = 'PITCH';
   @state() private roleMix?: Partial<Record<SampleRole, number>>;
+  @state() private activeLayoutId: string = DEFAULT_LAYOUT_ID;
   @state() private look: AppearanceSettings = {
     stickers: false,
     vintage: false
@@ -177,6 +179,13 @@ export class CrateMateApp extends LitElement {
   async connectedCallback() {
     super.connectedCallback();
     window.addEventListener('keydown', this.handleGlobalKeyDown);
+
+    try {
+      const savedLayout = localStorage.getItem('cratemate_layout');
+      if (savedLayout && (savedLayout === NO_LAYOUT_ID || getLayout(savedLayout))) {
+        this.activeLayoutId = savedLayout;
+      }
+    } catch (_) {}
 
     try {
       const savedLook = localStorage.getItem('cratemate_look');
@@ -377,7 +386,7 @@ export class CrateMateApp extends LitElement {
       this.freshIndices = [padIndex];
       setTimeout(() => { this.freshIndices = []; }, 2200);
       this.preloadKitAudio(this.activeKit);
-      this.showToast(`↻ Respun Pad ${String(padIndex + 1).padStart(2, '0')}`);
+      this.showToast(`↻ Respun Pad ${padDisplayNumber(padIndex, this.isSpNumbered)}`);
       this.handlePadTrigger(new CustomEvent('pad-trigger', { detail: { padIndex } }));
     } catch (err: any) {
       this.showToast(`Could not respin: ${err.message || err}`);
@@ -406,7 +415,8 @@ export class CrateMateApp extends LitElement {
         rerollAll,
         this.activePresetId,
         this.activeCriteria,
-        this.roleMix
+        this.roleMix,
+        getLayout(this.activeLayoutId)
       );
 
       this.serialNumber++;
@@ -509,6 +519,17 @@ export class CrateMateApp extends LitElement {
     }
   };
 
+  private handleSelectLayout = async (e: CustomEvent<{ layoutId: string }>) => {
+    this.activeLayoutId = e.detail.layoutId;
+    try {
+      localStorage.setItem('cratemate_layout', this.activeLayoutId);
+    } catch (_) {}
+    const layout = getLayout(this.activeLayoutId);
+    if (layout) this.padCount = 16;
+    await this.handleGenerateKit(false);
+    this.showToast(layout ? `Layout: ${layout.name}` : 'Layout: standard');
+  };
+
   private handleLookChange = (e: CustomEvent<{ stickers?: boolean; vintage?: boolean }>) => {
     this.look = { ...this.look, ...e.detail };
     localStorage.setItem('cratemate_look', JSON.stringify(this.look));
@@ -542,6 +563,11 @@ export class CrateMateApp extends LitElement {
     }
   };
 
+  /** True while the kit on screen was built against a layout that uses SP-404MKII pad numbers. */
+  private get isSpNumbered(): boolean {
+    return !!getLayout(this.activeKit?.layoutId)?.spNumbered;
+  }
+
   render() {
     const allPresets = [...FACTORY_PRESETS, ...this.customPresets];
     const activePreset = allPresets.find(p => p.id === this.activePresetId) || FACTORY_PRESETS[0];
@@ -567,7 +593,8 @@ export class CrateMateApp extends LitElement {
               .isGenerating=${this.isGeneratingKit}
               .folders=${this.folders}
               .folderCursor=${this.folderCursor}
-              .roleMix=${this.roleMix || {}}
+              .roleMix=${(this.padCount === 16 && getLayout(this.activeLayoutId) ? layoutRoleMix(getLayout(this.activeLayoutId)!) : this.roleMix) || {}}
+              .spNumbered=${this.isSpNumbered}
               .stickers=${this.look.stickers}
               @generate-kit=${() => this.handleGenerateKit(false)}
               @reroll-single-pad=${this.handleRerollSinglePad}
@@ -589,6 +616,7 @@ export class CrateMateApp extends LitElement {
               .presetNames=${allPresets.map(p => p.name)}
               .activePresetIndex=${activePresetIdx}
               .sliderMode=${this.sliderMode}
+              .spNumbered=${this.isSpNumbered}
               .activePadSlot=${this.activeSlot}
               .activePadIndex=${this.activePadIndex}
               .stickers=${this.look.stickers}
@@ -611,6 +639,7 @@ export class CrateMateApp extends LitElement {
               .pads=${this.activeKit?.pads || []}
               .padCount=${this.padCount}
               .freshIndices=${this.freshIndices}
+              .spNumbered=${this.isSpNumbered}
               .pathPrefix=${defaultPrefix}
               .stickers=${this.look.stickers}
               @pad-trigger=${this.handlePadTrigger}
@@ -627,6 +656,8 @@ export class CrateMateApp extends LitElement {
         .kit=${this.activeKit}
         .presets=${allPresets}
         .activePresetId=${this.activePresetId}
+        .layouts=${PAD_LAYOUTS}
+        .activeLayoutId=${this.activeLayoutId}
         .folders=${this.folders}
         .criteria=${this.activeCriteria}
         .stickers=${this.look.stickers}
@@ -634,6 +665,7 @@ export class CrateMateApp extends LitElement {
         @close-disk=${() => this.isSetupDiskOpen = false}
         @reconnect-folder=${(e: CustomEvent<{ folderId: string }>) => this.handleReconnectFolder(e.detail.folderId)}
         @look-change=${this.handleLookChange}
+        @select-layout=${this.handleSelectLayout}
         @select-preset=${(e: CustomEvent<{ presetId: string }>) => {
           this.activePresetId = e.detail.presetId;
           const p = allPresets.find(item => item.id === e.detail.presetId);
