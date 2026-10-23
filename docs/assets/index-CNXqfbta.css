@@ -1,0 +1,1 @@
+*{box-sizing:border-box;scrollbar-width:none}::-webkit-scrollbar{display:none}html,body{color:#3b2e25;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;background:#f1e8d6;width:100%;height:100%;margin:0;padding:0;font-family:Figtree,system-ui,-apple-system,Segoe UI,sans-serif;overflow:hidden}a{color:#a6522f}a:hover{color:#7d3b20}crate-mate-app{display:flex}
